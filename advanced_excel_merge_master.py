@@ -25,14 +25,11 @@ def detect_header(sheet, max_rows_check=10):
             best_header = [str(cell).strip() if cell else "" for cell in row]
     return best_row_idx, best_header
 
-def app():
+def app(supplement_name, delete_enabled, custom_chars):
     st.header("Master Table")
     st.markdown("Fasst ausgewählte Arbeitsblätter einer Excel-Datei zu einer Mastertabelle zusammen.")
     
-    supplement_name = st.text_input("File Supplement Name", value="default", key="master_supplement")
-    delete_enabled = st.checkbox("Zeichen in Zellen entfernen", key="master_delete")
-    custom_chars = st.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="master_custom")
-    
+    # Eingaben aus main.py werden übergeben – keine eigenen Sidebar-Eingaben hier
     uploaded_file = st.file_uploader("Excel-Datei für Master Table Merge hochladen", type=["xlsx", "xls"], key="master_file_uploader")
     if not uploaded_file:
         return
