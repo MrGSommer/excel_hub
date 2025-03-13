@@ -9,26 +9,27 @@ st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
 st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen.")
 
-# Gemeinsame Eingaben für die Advanced-Module zentral in der Sidebar
+# Globale Einstellungen in der Sidebar mit einem expander für optionale Infos
 st.sidebar.header("Globale Einstellungen für Advanced Excel Merger")
-st.sidebar.markdown(
-    """
-    **Hinweis:**
-    
-    Diese Einstellungen gelten für die Advanced Excel Merger-Module:
-    
-    - **File Supplement Name:**  
-      Definiert einen Namenszusatz für die generierten Dateien. Zum Beispiel wird bei 'default' der Dateiname `default_merged_output.xlsx` erzeugt.
-    
-    - **Zeichen in Zellen entfernen:**  
-      Aktiviert das Entfernen bestimmter Zeichen aus den Zellenwerten, z. B. Einheiten wie " m2", " m3" etc.
-    
-    - **Zusätzliche zu löschende Zeichen (kommagetrennt):**  
-      Hier können Sie weitere Zeichen eingeben, die aus den Zellen entfernt werden sollen. Mehrere Zeichen sind durch Kommas getrennt.
-    
-    Diese globalen Einstellungen werden an alle Advanced Module weitergegeben, um ein einheitliches Verhalten zu gewährleisten.
-    """
-)
+with st.sidebar.expander("Mehr Informationen (optional)"):
+    st.markdown(
+        """
+        **Hinweis:**
+        
+        Diese Einstellungen gelten für die Advanced Excel Merger-Module:
+        
+        - **File Supplement Name:**  
+          Definiert einen Namenszusatz für die generierten Dateien. Zum Beispiel wird bei 'default' der Dateiname `default_merged_output.xlsx` erzeugt.
+        
+        - **Zeichen in Zellen entfernen:**  
+          Aktiviert das Entfernen bestimmter Zeichen aus den Zellenwerten, z. B. Einheiten wie " m2", " m3" etc.
+        
+        - **Zusätzliche zu löschende Zeichen (kommagetrennt):**  
+          Hier können Sie weitere Zeichen eingeben, die aus den Zellen entfernt werden sollen. Mehrere Zeichen sind durch Kommas getrennt.
+        
+        Diese globalen Einstellungen werden an alle Advanced Module weitergegeben, um ein einheitliches Verhalten zu gewährleisten.
+        """
+    )
 supplement_name = st.sidebar.text_input("File Supplement Name", value="default", key="global_supplement")
 delete_enabled = st.sidebar.checkbox("Zeichen in Zellen entfernen", key="global_delete")
 custom_chars = st.sidebar.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="global_custom")
@@ -51,7 +52,6 @@ with tabs[2]:
     advanced_merge_master()
 
 with tabs[3]:
-    # Übergabe der globalen Parameter an das Modul
     advanced_merge_table(supplement_name, delete_enabled, custom_chars)
 
 with tabs[4]:
