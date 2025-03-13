@@ -1,4 +1,5 @@
 import streamlit as st
+from excel_requirements import app as excel_requirements
 from spalten_values_merger import app as values_merger
 from mehrschichtig_bereinigen import app as mehrsch_bereinigen
 from advanced_excel_merge_master import app as advanced_merge_master
@@ -39,7 +40,8 @@ tabs = st.tabs([
     "Mehrschichtig Bereinigen", 
     "Master Table", 
     "Merge to Table", 
-    "Merge to Sheets"
+    "Merge to Sheets",
+    "Excel-Anforderungen"
 ])
 
 with tabs[0]:
@@ -56,3 +58,6 @@ with tabs[3]:
 
 with tabs[4]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
+
+with tabs[5]:
+    excel_requirements()
