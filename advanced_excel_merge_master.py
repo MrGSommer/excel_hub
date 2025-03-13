@@ -26,14 +26,14 @@ def detect_header(sheet, max_rows_check=10):
     return best_row_idx, best_header
 
 def app():
-    st.header("Advanced Merger - Master Table")
+    st.header("Master Table")
     st.markdown("Fasst ausgewählte Arbeitsblätter einer Excel-Datei zu einer Mastertabelle zusammen.")
     
-    supplement_name = st.text_input("File Supplement Name", value="default")
-    delete_enabled = st.checkbox("Zeichen in Zellen entfernen")
-    custom_chars = st.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="")
+    supplement_name = st.text_input("File Supplement Name", value="default", key="master_supplement")
+    delete_enabled = st.checkbox("Zeichen in Zellen entfernen", key="master_delete")
+    custom_chars = st.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="master_custom")
     
-    uploaded_file = st.file_uploader("Excel-Datei für Master Table Merge hochladen", type=["xlsx", "xls"], key="master_table")
+    uploaded_file = st.file_uploader("Excel-Datei für Master Table Merge hochladen", type=["xlsx", "xls"], key="master_file_uploader")
     if not uploaded_file:
         return
     
@@ -44,7 +44,7 @@ def app():
         return
     
     sheets = wb.sheetnames
-    selected_sheets = st.multiselect("Arbeitsblätter auswählen", sheets)
+    selected_sheets = st.multiselect("Arbeitsblätter auswählen", sheets, key="master_sheet_select")
     if not selected_sheets:
         st.info("Bitte wählen Sie mindestens ein Arbeitsblatt aus.")
         return
@@ -89,5 +89,6 @@ def app():
         "Download Master Table Excel", 
         data=output, 
         file_name=f"{supplement_name}_merged_master_table.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="master_download_button"
     )
