@@ -10,13 +10,11 @@ tabs = st.tabs(["Excel Merger", "Weitere Tools"])
 
 @st.cache_data(show_spinner=False)
 def get_sheet_names(file_bytes):
-    # Liefert die Arbeitsblattnamen der Excel-Datei
     excel_file = pd.ExcelFile(file_bytes, engine="openpyxl")
     return excel_file.sheet_names
 
 @st.cache_data(show_spinner=False)
 def load_sheet(file_bytes, sheet_name, nrows=None, header=0):
-    # Lädt ein Arbeitsblatt, optional mit nrows und Header
     return pd.read_excel(file_bytes, sheet_name=sheet_name, nrows=nrows, header=header, engine="openpyxl")
 
 @st.cache_data(show_spinner=False)
@@ -47,7 +45,6 @@ def perform_merge(file_bytes, selected_sheet, hierarchies):
                         else:
                             new_name = measure
                         sheet_df[new_name] = new_col
-                # Entferne die in den Hierarchien verwendeten Spalten
                 used_columns = []
                 for measure in hierarchies:
                     used_columns.extend(hierarchies[measure])
@@ -74,7 +71,6 @@ with tabs[0]:
         """
     )
 
-    # Session-State initialisieren
     if "df" not in st.session_state:
         st.session_state["df"] = None
     if "all_columns" not in st.session_state:
@@ -92,24 +88,19 @@ with tabs[0]:
     if "uploaded_file" not in st.session_state:
         st.session_state["uploaded_file"] = None
 
-    # Schritt 1: Excel-Datei hochladen
     uploaded_file = st.file_uploader("Excel-Datei hochladen", type=["xlsx", "xls"])
     if uploaded_file:
-        # Umwandeln in Bytes für Caching
         file_bytes = uploaded_file.getvalue()
         st.session_state["uploaded_file"] = file_bytes
 
-        # Arbeitsblätter ermitteln (aus Cache)
         sheet_names = get_sheet_names(file_bytes)
         selected_sheet = st.selectbox("Arbeitsblatt auswählen", sheet_names, key="sheet_select")
         st.session_state["selected_sheet"] = selected_sheet
 
-        # Vorschau des Arbeitsblatts (5 Zeilen, aus Cache)
         preview_df = load_sheet(file_bytes, selected_sheet, nrows=5)
         st.subheader("Vorschau des Arbeitsblatts (5 Zeilen)")
         st.dataframe(preview_df)
 
-        # Header-Erkennung anhand "Teilprojekt"
         df_raw = load_sheet(file_bytes, selected_sheet, nrows=10, header=None)
         header_row = None
         for idx, row in df_raw.iterrows():
@@ -125,7 +116,6 @@ with tabs[0]:
         st.session_state["df"] = df
         st.session_state["all_columns"] = list(df.columns)
 
-        # Toggle: Dynamisches Laden der Spaltennamen
         st.markdown("### Optionen zur Spaltenauswahl")
         dynamic_loading = st.checkbox("Dynamisches Laden der verfügbaren Spaltennamen aktivieren", 
                                       value=True, key="dynamic_loading")
@@ -133,7 +123,6 @@ with tabs[0]:
             st.write("Wenn aktiviert, werden in anderen Hierarchien bereits ausgewählte Spalten nicht mehr angezeigt. "
                      "Ist diese Option deaktiviert, werden alle Spalten angezeigt – besser für die Performance.")
 
-        # Schritt 4: Hierarchie der Hauptmengenspalten festlegen
         st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
         for measure in st.session_state["hierarchies"]:
             if dynamic_loading:
@@ -148,14 +137,13 @@ with tabs[0]:
                 f"Spalten für **{measure}** auswählen (Reihenfolge = Auswahlreihenfolge)",
                 options=available_options,
                 default=st.session_state["hierarchies"][measure],
-                key=f"{measure}_multiselect"
+                key=f"{measure}_multiselect",
+                close_on_select=False
             )
             st.session_state["hierarchies"][measure] = current_selection
 
-        # Schritt 5: Merge durchführen
         if st.button("Merge und Excel herunterladen"):
             output = perform_merge(file_bytes, selected_sheet, st.session_state["hierarchies"])
-            # Download-Button oberhalb der Vorschau
             st.download_button("Download Excel", data=output, file_name="merged_excel.xlsx",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             st.subheader("Vorschau der gemergten Datei (jeweils 5 Zeilen)")
