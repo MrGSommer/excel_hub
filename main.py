@@ -85,12 +85,12 @@ with tabs[0]:
                     sel_col = st.selectbox(f"Spalte für {measure} auswählen", available_columns, key=f"{measure}_selbox")
                     if st.button(f"Hinzufuegen zu {measure}", key=f"{measure}_add"):
                         st.session_state["hierarchies"][measure].append(sel_col)
-                        st.experimental_rerun()
+                        st.rerun()
                 else:
                     st.write("Keine weiteren Spalten verfügbar.")
                 if st.button(f"Reset {measure}", key=f"{measure}_reset"):
                     st.session_state["hierarchies"][measure] = []
-                    st.experimental_rerun()
+                    st.rerun()
 
             # Schritt 5: Merge durchführen und Datei zum Download anbieten
             if st.button("Merge und Excel herunterladen"):
