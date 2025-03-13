@@ -3,48 +3,6 @@ import pandas as pd
 import io
 import re
 
-def app():
-    st.header("Mehrschichtig Bereinigen")
-    st.markdown("""
-    **Einleitung:**  
-    Dieser Prozess bereinigt Excel-Dateien in mehreren Schritten:
-    1. Setzen eines Mehrschichtigkeits-Flags.
-    2. Pre-Mapping der Masterspalten auf Subzeilen.
-    3. Entfernen nicht klassifizierter Hauptelemente.
-    4. Aufschlüsselung mehrschichtiger Elemente.
-    5. Mapping der Sub-Spalten in Hauptspalten.
-    6. Entfernen überflüssiger Spalten.
-    7. Entfernen exakter Duplikate basierend auf GUID.
-    8. Textersetzung in "Flaeche", "Volumen" und "Laenge".  
-    Neuer Schritt: In "Unter Terrain" wird der Wert "oi" entfernt.
-    """)
-    
-    # Datei-Upload
-    uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"])
-    if uploaded_file:
-        try:
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
-        except Exception as e:
-            st.error(f"Fehler beim Einlesen: {e}")
-            return
-        
-        st.subheader("Originale Daten")
-        st.dataframe(df.head(10))
-        
-        with st.spinner("Daten werden bereinigt ..."):
-            df_clean = clean_dataframe(df)
-        
-        st.subheader("Bereinigte Daten")
-        st.dataframe(df_clean.head(10))
-        
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_clean.to_excel(writer, index=False)
-        output.seek(0)
-        st.download_button("Bereinigte Datei herunterladen", data=output,
-                           file_name="bereinigte_datei.xlsx",
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
 def clean_dataframe(df):
     master_cols = ["Teilprojekt", "Geschoss", "Unter Terrain"]
     
@@ -131,7 +89,7 @@ def clean_dataframe(df):
                     if pd.notna(row[col]) and row[col] != "":
                         df.at[idx, main_col] = row[col]
     
-    # Schritt 5: Entferne ueberfluessige Spalten
+    # Schritt 5: Entferne überflüssige Spalten
     sub_cols = [col for col in df.columns if col.endswith(" Sub")]
     df.drop(columns=sub_cols, inplace=True, errors="ignore")
     for col in ["Einzelteile", "Farbe"]:
@@ -161,3 +119,44 @@ def clean_dataframe(df):
         if col in df.columns:
             df[col] = df[col].astype(str).str.replace(pattern, "", regex=True)
     return df
+
+def app():
+    st.header("Mehrschichtig Bereinigen")
+    st.markdown("""
+    **Einleitung:**  
+    Bereinigt Excel-Dateien in mehreren Schritten:
+    1. Mehrschichtigkeits-Flag setzen.
+    2. Pre-Mapping der Masterspalten.
+    3. Entfernen nicht klassifizierter Hauptelemente.
+    4. Aufschlüsselung mehrschichtiger Elemente.
+    5. Mapping der Sub-Spalten.
+    6. Entfernen überflüssiger Spalten.
+    7. Entfernen exakter Duplikate basierend auf GUID.
+    8. Textersetzung in "Flaeche", "Volumen" und "Laenge".  
+    Neuer Schritt: Entfernt den Wert "oi" in "Unter Terrain".
+    """)
+    
+    uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="bereinigen_file_uploader")
+    if uploaded_file:
+        try:
+            df = pd.read_excel(uploaded_file, engine="openpyxl")
+        except Exception as e:
+            st.error(f"Fehler beim Einlesen: {e}")
+            return
+        
+        st.subheader("Originale Daten (10 Zeilen)")
+        st.dataframe(df.head(10))
+        
+        with st.spinner("Daten werden bereinigt ..."):
+            df_clean = clean_dataframe(df)
+        
+        st.subheader("Bereinigte Daten (10 Zeilen)")
+        st.dataframe(df_clean.head(10))
+        
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df_clean.to_excel(writer, index=False)
+        output.seek(0)
+        st.download_button("Bereinigte Datei herunterladen", data=output,
+                           file_name="bereinigte_datei.xlsx",
+                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
