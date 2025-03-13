@@ -151,7 +151,6 @@ with tabs[0]:
                 key=f"{measure}_multiselect"
             )
             st.session_state["hierarchies"][measure] = current_selection
-            st.markdown(f"Ausgewählte Spalten für **{measure}**: {current_selection}")
 
         # Schritt 5: Merge durchführen
         if st.button("Merge und Excel herunterladen"):
