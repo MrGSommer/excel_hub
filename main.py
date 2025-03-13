@@ -101,4 +101,67 @@ with tabs[0]:
 
         # Arbeitsblätter ermitteln (aus Cache)
         sheet_names = get_sheet_names(file_bytes)
-        selected_sheet = st.selectbox("Arbeitsblatt auswählen", sheet_names, key="sheet
+        selected_sheet = st.selectbox("Arbeitsblatt auswählen", sheet_names, key="sheet_select")
+        st.session_state["selected_sheet"] = selected_sheet
+
+        # Vorschau des Arbeitsblatts (5 Zeilen, aus Cache)
+        preview_df = load_sheet(file_bytes, selected_sheet, nrows=5)
+        st.subheader("Vorschau des Arbeitsblatts (5 Zeilen)")
+        st.dataframe(preview_df)
+
+        # Header-Erkennung anhand "Teilprojekt"
+        df_raw = load_sheet(file_bytes, selected_sheet, nrows=10, header=None)
+        header_row = None
+        for idx, row in df_raw.iterrows():
+            if row.astype(str).str.contains("Teilprojekt", case=False, na=False).any():
+                header_row = idx
+                break
+        if header_row is None:
+            st.info("Kein Header mit 'Teilprojekt' gefunden. Erste Zeile wird als Header genutzt.")
+            header_row = 0
+        df = load_sheet(file_bytes, selected_sheet, header=header_row)
+        st.markdown(f"**Erkannter Header:** Zeile {header_row + 1}")
+        st.dataframe(df.head(5))
+        st.session_state["df"] = df
+        st.session_state["all_columns"] = list(df.columns)
+
+        # Toggle: Dynamisches Laden der Spaltennamen
+        st.markdown("### Optionen zur Spaltenauswahl")
+        dynamic_loading = st.checkbox("Dynamisches Laden der verfügbaren Spaltennamen aktivieren", 
+                                      value=True, key="dynamic_loading")
+        with st.expander("ℹ️ Info zur Spaltenauswahl"):
+            st.write("Wenn aktiviert, werden in anderen Hierarchien bereits ausgewählte Spalten nicht mehr angezeigt. "
+                     "Ist diese Option deaktiviert, werden alle Spalten angezeigt – besser für die Performance.")
+
+        # Schritt 4: Hierarchie der Hauptmengenspalten festlegen
+        st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
+        for measure in st.session_state["hierarchies"]:
+            if dynamic_loading:
+                used_in_other = []
+                for m, sel in st.session_state["hierarchies"].items():
+                    if m != measure:
+                        used_in_other.extend(sel)
+                available_options = [col for col in st.session_state["all_columns"] if col not in used_in_other]
+            else:
+                available_options = st.session_state["all_columns"]
+            current_selection = st.multiselect(
+                f"Spalten für **{measure}** auswählen (Reihenfolge = Auswahlreihenfolge)",
+                options=available_options,
+                default=st.session_state["hierarchies"][measure],
+                key=f"{measure}_multiselect"
+            )
+            st.session_state["hierarchies"][measure] = current_selection
+            st.markdown(f"Ausgewählte Spalten für **{measure}**: {current_selection}")
+
+        # Schritt 5: Merge durchführen
+        if st.button("Merge und Excel herunterladen"):
+            output = perform_merge(file_bytes, selected_sheet, st.session_state["hierarchies"])
+            # Download-Button oberhalb der Vorschau
+            st.download_button("Download Excel", data=output, file_name="merged_excel.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            st.subheader("Vorschau der gemergten Datei (jeweils 5 Zeilen)")
+            merged_excel = pd.ExcelFile(output, engine="openpyxl")
+            for sheet in merged_excel.sheet_names:
+                df_preview = pd.read_excel(merged_excel, sheet_name=sheet, nrows=5, engine="openpyxl")
+                st.markdown(f"**Sheet: {sheet}**")
+                st.dataframe(df_preview)
