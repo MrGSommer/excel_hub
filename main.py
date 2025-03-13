@@ -3,25 +3,31 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
+
+# Gesamttitel der Applikation
+st.title("Excel Operation Tools 🚀")
+st.markdown("Willkommen! Wählen Sie unten einen Tab für verschiedene Excel-Operationen.")
+
 tabs = st.tabs(["Excel Merger", "Weitere Tools"])
 
 with tabs[0]:
-    st.header("Excel Merger Tool")
+    st.header("Excel Merger Tool ✨")
     st.markdown(
         """
         **Einleitung:**  
-        Dieses Tool ermöglicht Ihnen, eine Excel-Datei hochzuladen, ein Arbeitsblatt auszuwählen, den Header automatisch zu erkennen (Zeile mit dem Zellwert „Teilprojekt“) und anschließend mehrere Spalten gemäß einer selbst festgelegten Hierarchie zu einer Hauptspalte zu mergen.  
-        Nach dem Merge werden die verwendeten Spalten gelöscht.  
-        Folgen Sie den Schritten:  
+        Laden Sie eine Excel-Datei hoch, wählen Sie ein Arbeitsblatt aus und prüfen Sie den automatisch erkannten Header (Zeile mit dem Zellwert „Teilprojekt“).  
+        Legen Sie anschließend die Hierarchie der Hauptmengenspalten fest (Dicke, Flaeche, Volumen, Laenge, Hoehe) per Mehrfachauswahl.  
+        Die Reihenfolge entspricht der Auswahlreihenfolge. Nach dem Merge werden die verwendeten Spalten gelöscht.  
+        **Schritte:**  
         1. Excel-Datei hochladen  
-        2. Arbeitsblatt auswählen und Vorschau betrachten  
-        3. Header-Erkennung prüfen  
-        4. Für die Hauptmengenspalten (Dicke, Flaeche, Volumen, Laenge, Hoehe) jeweils die Zusammenführungs-Hierarchie festlegen  
-        5. Merge durchführen und die neue Datei herunterladen
+        2. Arbeitsblatt auswählen und Vorschau prüfen  
+        3. Header-Erkennung bestätigen  
+        4. Hierarchie der Hauptmengenspalten festlegen  
+        5. Merge durchführen und Datei herunterladen
         """
     )
 
-    # Initialisierung des Session-State
+    # Session-State initialisieren
     if "df" not in st.session_state:
         st.session_state["df"] = None
     if "all_columns" not in st.session_state:
@@ -75,23 +81,21 @@ with tabs[0]:
             # Schritt 4: Hierarchie der Hauptmengenspalten festlegen
             st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
             for measure in st.session_state["hierarchies"]:
-                st.markdown(f"**{measure}** (aktuelle Reihenfolge: {st.session_state['hierarchies'][measure]})")
-                # Berechnung der bereits benutzten Spalten
-                all_used = []
-                for m in st.session_state["hierarchies"]:
-                    all_used.extend(st.session_state["hierarchies"][m])
-                available_columns = [col for col in st.session_state["all_columns"] if col not in all_used]
-                if available_columns:
-                    sel_col = st.selectbox(f"Spalte für {measure} auswählen", available_columns, key=f"{measure}_selbox")
-                    if st.button(f"Hinzufuegen zu {measure}", key=f"{measure}_add"):
-                        st.session_state["hierarchies"][measure].append(sel_col)
-                        st.rerun()
-                else:
-                    st.write("Keine weiteren Spalten verfügbar.")
-                if st.button(f"Reset {measure}", key=f"{measure}_reset"):
-                    st.session_state["hierarchies"][measure] = []
-                    st.rerun()
-
+                # Ermittlung der in anderen Measures bereits gewählten Spalten
+                used_in_other = []
+                for m, sel in st.session_state["hierarchies"].items():
+                    if m != measure:
+                        used_in_other.extend(sel)
+                available_options = [col for col in st.session_state["all_columns"] if col not in used_in_other]
+                current_selection = st.multiselect(
+                    f"Spalten für **{measure}** auswählen (Reihenfolge = Auswahlreihenfolge)",
+                    options=available_options,
+                    default=st.session_state["hierarchies"][measure],
+                    key=f"{measure}_multiselect"
+                )
+                st.session_state["hierarchies"][measure] = current_selection
+                st.markdown(f"Ausgewählte Spalten für **{measure}**: {current_selection}")
+            
             # Schritt 5: Merge durchführen und Datei zum Download anbieten
             if st.button("Merge und Excel herunterladen"):
                 output = io.BytesIO()
