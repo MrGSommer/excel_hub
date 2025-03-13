@@ -36,28 +36,30 @@ delete_enabled = st.sidebar.checkbox("Zeichen in Zellen entfernen", key="global_
 custom_chars = st.sidebar.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="global_custom")
 
 tabs = st.tabs([
+    "Excel-Anforderungen",
     "Spalten Mengen Merger", 
     "Mehrschichtig Bereinigen", 
     "Master Table", 
     "Merge to Table", 
-    "Merge to Sheets",
-    "Excel-Anforderungen"
+    "Merge to Sheets"
 ])
 
 with tabs[0]:
+    excel_requirements()
+    
+with tabs[1]:
     values_merger()
 
-with tabs[1]:
+with tabs[2]:
     mehrsch_bereinigen()
 
-with tabs[2]:
+with tabs[3]:
     advanced_merge_master(supplement_name, delete_enabled, custom_chars)
 
-with tabs[3]:
+with tabs[4]:
     advanced_merge_table(supplement_name, delete_enabled, custom_chars)
 
-with tabs[4]:
+with tabs[5]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
 
-with tabs[5]:
-    excel_requirements()
+
