@@ -14,15 +14,11 @@ def clean_value(value, delete_enabled, custom_chars):
             value = value.replace(u, "")
     return value
 
-def app():
-    st.header("Advanced Merger - Merge to Table")
+def app(supplement_name, delete_enabled, custom_chars):
+    st.header("Merge to Table")
     st.markdown("Fasst mehrere Excel-Dateien zu einer Tabelle zusammen. Spalten werden nach Häufigkeit sortiert.")
     
-    supplement_name = st.text_input("File Supplement Name", value="default")
-    delete_enabled = st.checkbox("Zeichen in Zellen entfernen", key="table_delete")
-    custom_chars = st.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="table_custom")
-    
-    uploaded_files = st.file_uploader("Excel-Dateien hochladen", type=["xlsx", "xls"], key="merge_table", accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Excel-Dateien hochladen", type=["xlsx", "xls"], key="table_files", accept_multiple_files=True)
     if not uploaded_files:
         return
     
@@ -64,5 +60,9 @@ def app():
         "Download Merged Table Excel", 
         data=output, 
         file_name=f"{supplement_name}_merged_output_table.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="table_download_button"
     )
+
+if __name__ == "__main__":
+    app(supplement_name="default", delete_enabled=False, custom_chars="")
