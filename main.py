@@ -49,7 +49,7 @@ with tabs[1]:
     mehrsch_bereinigen()
 
 with tabs[2]:
-    advanced_merge_master()
+    advanced_merge_master(supplement_name, delete_enabled, custom_chars)
 
 with tabs[3]:
     advanced_merge_table(supplement_name, delete_enabled, custom_chars)
