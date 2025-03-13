@@ -3,10 +3,8 @@ import pandas as pd
 import io
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
-
-# Gesamttitel der Applikation
 st.title("Excel Operation Tools 🚀")
-st.markdown("Willkommen! Wählen Sie unten einen Tab für verschiedene Excel-Operationen.")
+st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen.")
 
 tabs = st.tabs(["Excel Merger", "Weitere Tools"])
 
@@ -15,18 +13,18 @@ with tabs[0]:
     st.markdown(
         """
         **Einleitung:**  
-        Laden Sie eine Excel-Datei hoch, wählen Sie ein Arbeitsblatt aus und prüfen Sie den automatisch erkannten Header (Zeile mit dem Zellwert „Teilprojekt“).  
-        Legen Sie anschließend die Hierarchie der Hauptmengenspalten fest (Dicke, Flaeche, Volumen, Laenge, Hoehe) per Mehrfachauswahl.  
-        Die Reihenfolge entspricht der Auswahlreihenfolge. Nach dem Merge werden die verwendeten Spalten gelöscht.  
+        Laden Sie eine Excel-Datei hoch, wählen Sie ein Arbeitsblatt und prüfen Sie den automatisch erkannten Header (Zeile mit dem Zellwert „Teilprojekt“).  
+        Legen Sie anschließend per Mehrfachauswahl die Hierarchie für die Hauptmengenspalten (Dicke, Flaeche, Volumen, Laenge, Hoehe) fest.  
+        Nach dem Merge werden die benutzten Spalten entfernt.  
         **Schritte:**  
         1. Excel-Datei hochladen  
-        2. Arbeitsblatt auswählen und Vorschau prüfen  
+        2. Arbeitsblatt auswählen und Vorschau prüfen (5 Zeilen)  
         3. Header-Erkennung bestätigen  
         4. Hierarchie der Hauptmengenspalten festlegen  
-        5. Merge durchführen und Datei herunterladen
+        5. Merge durchführen, Datei herunterladen und Vorschau betrachten  
         """
     )
-
+    
     # Session-State initialisieren
     if "df" not in st.session_state:
         st.session_state["df"] = None
@@ -57,9 +55,9 @@ with tabs[0]:
             selected_sheet = st.selectbox("Arbeitsblatt auswählen", sheet_names, key="sheet_select")
             st.session_state["selected_sheet"] = selected_sheet
 
-            # Vorschau des ausgewählten Arbeitsblatts (erste 10 Zeilen)
-            preview_df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, nrows=10, engine="openpyxl")
-            st.subheader("Vorschau des Arbeitsblatts")
+            # Vorschau des Arbeitsblatts (erste 5 Zeilen)
+            preview_df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, nrows=5, engine="openpyxl")
+            st.subheader("Vorschau des Arbeitsblatts (5 Zeilen)")
             st.dataframe(preview_df)
 
             # Schritt 3: Header-Erkennung anhand "Teilprojekt"
@@ -74,19 +72,30 @@ with tabs[0]:
                 header_row = 0
             df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=header_row, engine="openpyxl")
             st.markdown(f"**Erkannter Header:** Zeile {header_row + 1}")
-            st.dataframe(df.head(10))
+            st.dataframe(df.head(5))
             st.session_state["df"] = df
             st.session_state["all_columns"] = list(df.columns)
-
+            
+            # Toggle: Dynamisches Laden der verfügbaren Spaltennamen
+            st.markdown("### Optionen zur Spaltenauswahl")
+            dynamic_loading = st.checkbox("Dynamisches Laden der verfügbaren Spaltennamen aktivieren", value=True, key="dynamic_loading")
+            with st.expander("ℹ️ Info zur Spaltenauswahl"):
+                st.write("Wenn aktiviert, werden bereits in anderen Hierarchien ausgewählte Spalten nicht mehr angezeigt. "
+                         "Ist diese Option deaktiviert, stehen stets alle Spalten zur Auswahl.")
+            
             # Schritt 4: Hierarchie der Hauptmengenspalten festlegen
             st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
             for measure in st.session_state["hierarchies"]:
-                # Ermittlung der in anderen Measures bereits gewählten Spalten
-                used_in_other = []
-                for m, sel in st.session_state["hierarchies"].items():
-                    if m != measure:
-                        used_in_other.extend(sel)
-                available_options = [col for col in st.session_state["all_columns"] if col not in used_in_other]
+                # Wenn dynamisch aktiv, filtere bereits benutzte Spalten in anderen Measures
+                if dynamic_loading:
+                    used_in_other = []
+                    for m, sel in st.session_state["hierarchies"].items():
+                        if m != measure:
+                            used_in_other.extend(sel)
+                    available_options = [col for col in st.session_state["all_columns"] if col not in used_in_other]
+                else:
+                    available_options = st.session_state["all_columns"]
+                    
                 current_selection = st.multiselect(
                     f"Spalten für **{measure}** auswählen (Reihenfolge = Auswahlreihenfolge)",
                     options=available_options,
@@ -96,7 +105,7 @@ with tabs[0]:
                 st.session_state["hierarchies"][measure] = current_selection
                 st.markdown(f"Ausgewählte Spalten für **{measure}**: {current_selection}")
             
-            # Schritt 5: Merge durchführen und Datei zum Download anbieten
+            # Schritt 5: Merge durchführen, Download-Button und Vorschau anzeigen
             if st.button("Merge und Excel herunterladen"):
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -130,7 +139,17 @@ with tabs[0]:
                             sheet_df.drop(columns=[col for col in used_columns if col in sheet_df.columns], inplace=True)
                         sheet_df.to_excel(writer, sheet_name=sheet, index=False)
                 output.seek(0)
+                
+                # Download-Button oberhalb der Vorschau
                 st.download_button("Download Excel", data=output, file_name="merged_excel.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                
+                st.subheader("Vorschau der gemergten Datei (jeweils 5 Zeilen)")
+                output.seek(0)
+                merged_excel = pd.ExcelFile(output, engine="openpyxl")
+                for sheet in merged_excel.sheet_names:
+                    df_preview = pd.read_excel(merged_excel, sheet_name=sheet, nrows=5, engine="openpyxl")
+                    st.markdown(f"**Sheet: {sheet}**")
+                    st.dataframe(df_preview)
         except Exception as e:
             st.error(f"Fehler: {e}")
