@@ -8,8 +8,7 @@ from advanced_excel_merge_sheets import app as advanced_merge_sheets
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
-st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen.
-Für Datenmodelle und Hinweise Tab Excel-Anforderungen öffnen.")
+st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen.")
 
 # Globale Einstellungen in der Sidebar mit einem expander für optionale Infos
 st.sidebar.header("Globale Einstellungen für Advanced Excel Merger")
