@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import openpyxl
+from openpyxl import Workbook
 
 def clean_value(value, delete_enabled, custom_chars):
     if isinstance(value, str):
@@ -13,20 +14,15 @@ def clean_value(value, delete_enabled, custom_chars):
             value = value.replace(u, "")
     return value
 
-def app():
-    st.header("Advanced Merger - Merge to Sheets")
+def app(supplement_name, delete_enabled, custom_chars):
+    st.header("Merge to Sheets")
     st.markdown("Fügt jede Excel-Datei als eigenes Blatt in eine neue Arbeitsmappe ein.")
     
-    supplement_name = st.text_input("File Supplement Name", value="default")
-    delete_enabled = st.checkbox("Zeichen in Zellen entfernen", key="sheets_delete")
-    custom_chars = st.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="sheets_custom")
-    
-    uploaded_files = st.file_uploader("Excel-Dateien hochladen", type=["xlsx", "xls"], key="merge_sheets", accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Excel-Dateien hochladen", type=["xlsx", "xls"], key="sheets_files", accept_multiple_files=True)
     if not uploaded_files:
         return
     
     progress_bar = st.progress(0)
-    from openpyxl import Workbook
     merged_wb = Workbook()
     if "Sheet" in merged_wb.sheetnames:
         std = merged_wb["Sheet"]
@@ -56,5 +52,9 @@ def app():
         "Download Merged Sheets Excel", 
         data=output, 
         file_name=f"{supplement_name}_merged_output_sheets.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="sheets_download_button"
     )
+
+if __name__ == "__main__":
+    app(supplement_name="default", delete_enabled=False, custom_chars="")
