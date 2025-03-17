@@ -85,10 +85,10 @@ def app():
                                     for col in hierarchy[1:]:
                                         new_col = new_col.combine_first(sheet_df[col])
                                     new_name = {
-                                        "Flaeche": "Flaeche (m2)",
-                                        "Laenge": "Laenge (m)",
+                                        "Flaeche": "Fläche (m2)",
+                                        "Laenge": "Länge (m)",
                                         "Dicke": "Dicke (m)",
-                                        "Hoehe": "Hoehe (m)",
+                                        "Hoehe": "Höhe (m)",
                                         "Volumen": "Volumen (m3)"
                                     }.get(measure, measure)
                                     sheet_df[new_name] = new_col
