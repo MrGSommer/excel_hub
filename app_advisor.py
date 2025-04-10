@@ -19,46 +19,48 @@ def clean_value(value, delete_enabled, custom_chars):
 
 def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str, str]:
     cols = df.columns.str.lower()
+    lower_cols = cols.tolist()
+    full_text = " ".join(df.head(50).fillna("").astype(str).apply(lambda row: " ".join(row).lower(), axis=1))
+
+    tool_flags = {
+        "Spalten Mengen Merger": False,
+        "Mehrschichtig Bereinigen": False,
+        "Master Table": False,
+        "Merge to Table": False
+    }
     reasons = []
-    tools = []
 
-    sample_rows = df.head(50).fillna("").astype(str).apply(lambda row: " ".join(row).lower(), axis=1)
-    full_text = " ".join(sample_rows)
+    menge_terms = ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]
+    menge_count = sum(1 for term in menge_terms if term in lower_cols)
 
-    lower_cols = df.columns.str.lower().tolist()
     has_teilprojekt = "teilprojekt" in lower_cols
     has_ebkph = "ebkp-h" in lower_cols
     has_ebkph_sub = any("ebkp-h sub" == col.lower() for col in df.columns)
     has_master_cols = all(col in lower_cols for col in ["teilprojekt", "geschoss", "unter terrain"])
-    menge_terms = ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]
-    menge_count = sum(1 for term in menge_terms if term in lower_cols)
-
-    # Zusatzkontext: Anzahl nicht-leerer Sub-Zeilen, Anzahl Sheets, typische Begriffe
-    sub_count = df[[c for c in df.columns if c.lower() == "ebkp-h sub"][0]].notna().sum() if has_ebkph_sub else 0
     num_sheets = len(sheetnames)
 
-    if has_ebkph and has_ebkph_sub and has_master_cols and sub_count >= 1:
-        tools.append("Mehrschichtig Bereinigen")
-        reasons.append("eBKP-H, eBKP-H Sub und vollständige Masterspalten deuten auf eine mehrschichtige Struktur hin.")
+    if has_ebkph and has_ebkph_sub and has_master_cols:
+        sub_col = [col for col in df.columns if col.lower() == "ebkp-h sub"]
+        if sub_col and df[sub_col[0]].notna().sum() > 0:
+            tool_flags["Mehrschichtig Bereinigen"] = True
+            reasons.append("Struktur mit eBKP-H Sub und Masterspalten erkannt.")
 
     if has_teilprojekt and menge_count >= 2:
-        tools.append("Spalten Mengen Merger")
-        reasons.append("Mehrere Mengenspalten mit 'Teilprojekt' erkannt – geeignet zum Zusammenführen.")
+        tool_flags["Spalten Mengen Merger"] = True
+        reasons.append("Teilprojekt und mehrere Mengenspalten vorhanden.")
 
     if num_sheets > 1:
-        tools.append("Master Table")
-        reasons.append("Mehrere Arbeitsblätter vorhanden – ideal für die Zusammenführung in einer Master-Tabelle.")
+        tool_flags["Master Table"] = True
+        reasons.append("Mehrere Arbeitsblätter erkannt.")
 
-    if not tools:
-        tools.append("Merge to Table")
-        reasons.append("Einfache Struktur – geeignet für das Zusammenführen mehrerer Dateien zu einer Tabelle.")
-        confidence = "Niedrig"
-    elif len(tools) == 1:
-        confidence = "Hoch"
-    else:
-        confidence = "Mittel"
+    if not any(tool_flags.values()):
+        tool_flags["Merge to Table"] = True
+        reasons.append("Keine komplexe Struktur erkannt.")
 
-    return tools[0], reasons[0], confidence
+    confidence = "Hoch" if sum(tool_flags.values()) == 1 else ("Mittel" if sum(tool_flags.values()) == 2 else "Niedrig")
+
+    primary_tool = [tool for tool, valid in tool_flags.items() if valid][0]
+    return primary_tool, "; ".join(reasons), confidence
 
 
 def app_advisor():
@@ -82,12 +84,18 @@ def app_advisor():
         if confidence in ["Mittel", "Niedrig"]:
             st.markdown("---")
             st.markdown("### Zusätzliche Klärung durch Fragen")
-            if st.checkbox("Enthält Ihre Datei Subzeilen mit 'eBKP-H Sub'?"):
-                st.info("➡️ Das Tool **Mehrschichtig Bereinigen** könnte sinnvoll sein.")
-            if st.checkbox("Sind Mengenspalten wie Fläche oder Volumen enthalten?"):
-                st.info("➡️ Das Tool **Spalten Mengen Merger** könnte geeignet sein.")
-            if st.checkbox("Enthält die Datei mehrere Arbeitsblätter mit ähnlicher Struktur?"):
-                st.info("➡️ Das Tool **Master Table** könnte eine Alternative sein.")
+            follow_ups = {
+                "Enthält Ihre Datei Subzeilen mit 'eBKP-H Sub'?": "Mehrschichtig Bereinigen",
+                "Sind Mengenspalten wie Fläche oder Volumen enthalten?": "Spalten Mengen Merger",
+                "Enthält die Datei mehrere Arbeitsblätter mit ähnlicher Struktur?": "Master Table"
+            }
+            confirmed_tools = []
+            for question, tool in follow_ups.items():
+                if st.checkbox(question):
+                    confirmed_tools.append(tool)
+
+            if confirmed_tools:
+                st.markdown(f"🔍 Basierend auf Ihren Antworten könnte eines dieser Tools passend sein: **{', '.join(confirmed_tools)}**")
 
         st.subheader("Vorschau der ersten 10 Zeilen")
         st.dataframe(df.head(10))
