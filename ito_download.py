@@ -19,6 +19,13 @@ def app():
         ],
         "Bauteilkategorien (Elementtypen)": [
             "ito_templates/ARC Covering.ito",
+            "ito_templates/ARC Geländer.ito",
+            "ito_templates/ARC Fenster.ito",
+            "ito_templates/ARC Stützen.ito",
+            "ito_templates/ARC Treppen.ito",
+            "ito_templates/ARC Türen.ito",
+            "ito_templates/ARC Wände.ito",
+            "ito_templates/ARC Curtain Wall.ito",
             "ito_templates/ARC Decken.ito"
         ],
         "Master Auswertung": [
