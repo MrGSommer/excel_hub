@@ -113,14 +113,19 @@ def clean_dataframe(df, delete_enabled=False, custom_chars=""):
         return df.drop(index=indices_to_drop).reset_index(drop=True)
     df = remove_exact_duplicates(df)
     
-    # Schritt 8: Textersetzung in "Flaeche", "Volumen" und "Laenge" (immer aktiv)
+    # Schritt 8: Textersetzung und float-Konvertierung für alle Mengenspalten
     pattern = r'\s*m2|\s*m3|\s*m'
-    for col in ["Flaeche", "Volumen", "Laenge"]:
+    mengenspalten = ["Flaeche", "Volumen", "Laenge", "Dicke", "Hoehe"]
+    nicht_numerisch = []
+    
+    for col in mengenspalten:
         if col in df.columns:
             df[col] = df[col].astype(str).str.replace(pattern, "", regex=True).str.replace(",", ".")
             df[col] = pd.to_numeric(df[col], errors="coerce")
+            if df[col].isna().all():
+                nicht_numerisch.append(col)
     
-    # Optional: Weitere Zeichen entfernen (z. B. "kg")
+    # Optional: Weitere Zeichen entfernen (z. B. "kg") aus allen object-Spalten
     if delete_enabled:
         delete_chars = [" kg"]
         if custom_chars:
@@ -129,8 +134,13 @@ def clean_dataframe(df, delete_enabled=False, custom_chars=""):
             if df[col].dtype == object:
                 for char in delete_chars:
                     df[col] = df[col].str.replace(char, "", regex=False)
-
+    
+    # Hinweis bei problematischen Spalten
+    if nicht_numerisch:
+        st.warning(f"Die folgenden Mengenspalten enthalten keine gültigen Zahlen und wurden mit NaN ersetzt: {', '.join(nicht_numerisch)}")
+    
     return df
+
 
 
 def app(supplement_name, delete_enabled, custom_chars):
