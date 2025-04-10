@@ -12,15 +12,15 @@ def app():
 
     ito_files = {
         "Mehrschichtig": [
-            "ito_templates/ebkph_takeoff.ito",
-            "ito_templates/ebkph_sub.ito"
+            "ito_templates/ARC Fenster.ito",
+            "ito_templates/ARC Stütuen.ito"
         ],
         "SIA 416": [
-            "ito_templates/flaeche_volumen.ito"
+            "ito_templates/ARC Treppen.ito"
         ],
         "Bauteilkategorien (Elementtypen)": [
-            "ito_templates/elementtypen.ito",
-            "ito_templates/elementtypen_bkp.ito"
+            "ito_templates/ARC Covering.ito",
+            "ito_templates/ARC Decken.ito"
         ]
     }
 
