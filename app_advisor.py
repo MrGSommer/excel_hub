@@ -22,45 +22,52 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str
     lower_cols = cols.tolist()
     full_text = " ".join(df.head(50).fillna("").astype(str).apply(lambda row: " ".join(row).lower(), axis=1))
 
-    tool_flags = {
-        "Spalten Mengen Merger": False,
-        "Mehrschichtig Bereinigen": False,
-        "Master Table": False,
-        "Merge to Table": False
+    checks = {
+        "has_teilprojekt": "teilprojekt" in lower_cols,
+        "has_ebkp_h": "ebkp-h" in lower_cols,
+        "has_ebkp_h_sub": any("ebkp-h sub" == col.lower() for col in df.columns),
+        "has_master_cols": all(col in lower_cols for col in ["teilprojekt", "geschoss", "unter terrain"]),
+        "menge_spalten_count": sum(1 for term in ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"] if term in lower_cols),
+        "num_sheets": len(sheetnames)
     }
-    reasons = []
 
-    menge_terms = ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]
-    menge_count = sum(1 for term in menge_terms if term in lower_cols)
+    tool_scores = {
+        "Mehrschichtig Bereinigen": 0,
+        "Spalten Mengen Merger": 0,
+        "Master Table": 0,
+        "Merge to Table": 0
+    }
+    reason_list = []
 
-    has_teilprojekt = "teilprojekt" in lower_cols
-    has_ebkph = "ebkp-h" in lower_cols
-    has_ebkph_sub = any("ebkp-h sub" == col.lower() for col in df.columns)
-    has_master_cols = all(col in lower_cols for col in ["teilprojekt", "geschoss", "unter terrain"])
-    num_sheets = len(sheetnames)
+    if checks["has_ebkp_h"] and checks["has_ebkp_h_sub"] and checks["has_master_cols"]:
+        ebkp_sub_col = [col for col in df.columns if col.lower() == "ebkp-h sub"]
+        if ebkp_sub_col and df[ebkp_sub_col[0]].notna().sum() > 0:
+            tool_scores["Mehrschichtig Bereinigen"] += 3
+            reason_list.append("Struktur mit eBKP-H Sub und Masterspalten erkannt.")
 
-    if has_ebkph and has_ebkph_sub and has_master_cols:
-        sub_col = [col for col in df.columns if col.lower() == "ebkp-h sub"]
-        if sub_col and df[sub_col[0]].notna().sum() > 0:
-            tool_flags["Mehrschichtig Bereinigen"] = True
-            reasons.append("Struktur mit eBKP-H Sub und Masterspalten erkannt.")
+    if checks["has_teilprojekt"] and checks["menge_spalten_count"] >= 2:
+        tool_scores["Spalten Mengen Merger"] += 2
+        reason_list.append("Teilprojekt und mehrere Mengenspalten vorhanden.")
 
-    if has_teilprojekt and menge_count >= 2:
-        tool_flags["Spalten Mengen Merger"] = True
-        reasons.append("Teilprojekt und mehrere Mengenspalten vorhanden.")
+    if checks["num_sheets"] > 1:
+        tool_scores["Master Table"] += 3
+        reason_list.append("Mehrere Arbeitsblätter erkannt.")
 
-    if num_sheets > 1:
-        tool_flags["Master Table"] = True
-        reasons.append("Mehrere Arbeitsblätter erkannt.")
+    if all(score == 0 for score in tool_scores.values()):
+        tool_scores["Merge to Table"] += 1
+        reason_list.append("Keine komplexe Struktur erkannt.")
 
-    if not any(tool_flags.values()):
-        tool_flags["Merge to Table"] = True
-        reasons.append("Keine komplexe Struktur erkannt.")
+    best_tool = max(tool_scores, key=tool_scores.get)
+    max_score = tool_scores[best_tool]
 
-    confidence = "Hoch" if sum(tool_flags.values()) == 1 else ("Mittel" if sum(tool_flags.values()) == 2 else "Niedrig")
+    if max_score >= 3:
+        confidence = "Hoch"
+    elif max_score == 2:
+        confidence = "Mittel"
+    else:
+        confidence = "Niedrig"
 
-    primary_tool = [tool for tool, valid in tool_flags.items() if valid][0]
-    return primary_tool, "; ".join(reasons), confidence
+    return best_tool, "; ".join(reason_list), confidence
 
 
 def app_advisor():
