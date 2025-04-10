@@ -27,8 +27,8 @@ def app():
     selected = st.selectbox("Vorlage auswählen", list(ito_files.keys()))
     file_paths = ito_files[selected]
 
-    if len(file_paths) == 1:
-        path = file_paths[0]
+    for path in file_paths:
+        st.write(f"Versuche, die Datei zu öffnen: {path}")
         try:
             with open(path, "rb") as f:
                 st.download_button(
@@ -39,19 +39,6 @@ def app():
                 )
         except FileNotFoundError:
             st.error(f"Datei nicht gefunden: {path}")
-    else:
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
-            for path in file_paths:
-                try:
-                    with open(path, "rb") as f:
-                        zip_file.writestr(os.path.basename(path), f.read())
-                except FileNotFoundError:
-                    st.warning(f"Fehlende Datei: {path}")
-        zip_buffer.seek(0)
-        st.download_button(
-            label=f"📦 Alle ITOs für '{selected}' als ZIP herunterladen",
-            data=zip_buffer,
-            file_name=f"{selected.replace(' ', '_')}.zip",
-            mime="application/zip"
-        )
+        except Exception as e:
+            st.error(f"Fehler beim Öffnen der Datei {path}: {e}")
+
