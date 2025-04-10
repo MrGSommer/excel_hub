@@ -48,8 +48,8 @@ def app():
     elif selected == "SIA 416":
         tool = None
         st.warning("""
-            Hinweis: Für SIA 416 sollten Sie **Spalten Mengen Merger** verwenden, wenn mehrere gleiche Mengentypen vorhanden sind. 
-            Andernfalls wird kein weiteres Tool empfohlen.
+            Hinweis: Für SIA 416 müssen Sie keine Vorlage verwenden, ausser Sie fügen gleiche Mengentypen später ein. 
+            Dann **Spalten Mengen Merger** verwenden.
         """)
     else:
         tool = None
