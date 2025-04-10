@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import openpyxl
 from collections import Counter
-from excel_utils import clean_columns_values, rename_columns_to_standard, COLUMN_PRESET
+from excel_utils import clean_columns_values, COLUMN_PRESET
 
 
 def clean_value(value, delete_enabled, custom_chars):
@@ -102,7 +102,7 @@ def app_advisor():
             checks = {
                 "Teilprojekt": "✅" if "teilprojekt" in lower_cols else "❌",
                 "eBKP-H": "✅" if "ebkp-h" in lower_cols else "❌",
-                "eBKP-H Sub": "✅" if "ebkp-h sub" in lower_cols else "❌",
+                "eBKP-H Sub": "✅" if any("ebkp-h sub" == col.lower() for col in df.columns) else "❌",
                 "Mengenspalten (z.B. Fläche, Volumen...)": "✅" if any(term in lower_cols for term in [
                     "fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]) else "❌"
             }
@@ -112,11 +112,6 @@ def app_advisor():
         with st.expander("Weitere Informationen zur Datei"):
             st.markdown(f"**Anzahl Blätter:** {len(xls.sheet_names)}")
             st.markdown(f"**Spaltennamen:** {', '.join(df.columns.astype(str))}")
-
-        with st.expander("Mögliche Umbenennung zu Standardnamen"):
-            renamed = rename_columns_to_standard(df.copy())
-            st.dataframe(renamed.head(5))
-            st.caption("Spaltennamen wurden gemäss Preset-Namenskonvention angepasst (z. B. 'Fläche BQ' → 'Fläche (m2)')")
 
     except Exception as e:
         st.error(f"Fehler beim Verarbeiten der Datei: {e}")
