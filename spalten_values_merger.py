@@ -70,9 +70,11 @@ def app(supplement_name, delete_enabled, custom_chars):
             if all(not val for val in st.session_state["hierarchies_values"].values()):
                 for measure, possible_cols in PRESET_HIERARCHY.items():
                     matched_cols = [col for col in possible_cols if col in df.columns]
-                    if matched_cols:
-                        # Nur erste passende Spalte wählen – oder ganzes matched_cols nehmen
-                        st.session_state["hierarchies_values"][measure] = [matched_cols[0]]
+                    # Behalte Reihenfolge aus Preset
+                    ordered_matches = [col for col in possible_cols if col in matched_cols]
+                    if ordered_matches:
+                        st.session_state["hierarchies_values"][measure] = ordered_matches
+
 
             
             # Hierarchie der Hauptmengenspalten festlegen
