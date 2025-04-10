@@ -111,11 +111,8 @@ def app_advisor():
             suggested_tool, reason, confidence = detect_tool_suggestion(df, xls.sheet_names, confirmed_tools)
 
         color = {"Hoch": "🟢", "Mittel": "🟡", "Niedrig": "🔴"}[confidence]
-        st.success(f"**Empfohlenes Tool:** {suggested_tool}")
-        st.info(f"{reason} (Vertrauenswürdigkeit: {color} **{confidence}**) ")
-
-        if confirmed_tools:
-            st.markdown(f"🔍 Ihre Antworten wurden berücksichtigt: **{', '.join(set(confirmed_tools))}**")
+        st.success(f"**Empfohlenes Tool:** {suggested_tool} (Vertrauenswürdigkeit: {color} **{confidence}**) ")
+        st.info(f"{reason}")
 
         st.subheader("Vorschau der ersten 10 Zeilen")
         st.dataframe(df.head(10))
