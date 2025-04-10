@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-def app():
+def app(supplement_name, delete_enabled, custom_chars):
     st.header("Spalten Mengen Merger")
     st.markdown("""
     **Einleitung:**  
@@ -97,9 +97,23 @@ def app():
                                 used_columns.extend(hierarchy)
                             used_columns = list(set(used_columns))
                             sheet_df.drop(columns=[col for col in used_columns if col in sheet_df.columns], inplace=True)
+                
+                        # 🔻 Zeichenbereinigung vor dem Schreiben
+                        if delete_enabled:
+                            delete_chars = [" m2", " m3", " m", " kg"]
+                            if custom_chars:
+                                delete_chars += [c.strip() for c in custom_chars.split(",") if c.strip()]
+                            for col in sheet_df.columns:
+                                if sheet_df[col].dtype == object:
+                                    for char in delete_chars:
+                                        sheet_df[col] = sheet_df[col].str.replace(char, "", regex=False)
+                
+                        # 🔻 Schreiben in Excel-Datei
                         sheet_df.to_excel(writer, sheet_name=sheet, index=False)
+
+
                 output.seek(0)
-                st.download_button("Download Excel", data=output, file_name="merged_excel.xlsx",
+                st.download_button("Download Excel", data=output, file_name = f"{supplement_name.strip() or 'default'}_merged_excel.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 st.subheader("Merge-Vorschau")
                 output.seek(0)
