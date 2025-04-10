@@ -10,6 +10,7 @@ def app():
     Diese Vorlagen können direkt importiert und bei Bedarf mit den Tools dieser Plattform kombiniert werden.
     """)
 
+    # Definieren der ITO-Dateien nach Vorlagen
     ito_files = {
         "Mehrschichtig": [
             "ito_templates/MehrschichtigInklEinschichtig.ito"
@@ -33,9 +34,32 @@ def app():
         ]
     }
 
+    # Vorlage auswählen
     selected = st.selectbox("Vorlage auswählen", list(ito_files.keys()))
     file_paths = ito_files[selected]
 
+    # Bestimmen des Tools basierend auf der Auswahl
+    if selected == "Mehrschichtig":
+        tool = "Mehrschichtig Bereinigen"
+    elif selected == "Bauteilkategorien (Elementtypen)":
+        tool = "Master Table"
+    elif selected == "Master Auswertung":
+        tool = "Spalten Mengen Merger"
+    elif selected == "SIA 416":
+        tool = None
+        st.warning("""
+            Hinweis: Für SIA 416 sollten Sie **Spalten Mengen Merger** verwenden, wenn mehrere gleiche Mengentypen vorhanden sind. 
+            Andernfalls wird kein weiteres Tool empfohlen.
+        """)
+    else:
+        tool = None
+        st.info("Kein Tool empfohlen, da die ITO gleich so ausgegeben werden kann.")
+
+    # Zeigen des empfohlenen Tools, wenn verfügbar
+    if tool:
+        st.info(f"Empfohlenes Tool für {selected}: **{tool}**")
+
+    # Wenn mehrere ITOs vorhanden sind, als ZIP herunterladen
     if len(file_paths) == 1:
         path = file_paths[0]
         try:
