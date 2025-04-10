@@ -22,6 +22,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     if "uploaded_file_values" not in st.session_state:
         st.session_state["uploaded_file_values"] = None
 
+    
     # Datei-Upload
     uploaded_file = st.file_uploader("Excel-Datei hochladen", type=["xlsx", "xls"], key="values_file_uploader")
     if uploaded_file:
@@ -54,6 +55,25 @@ def app(supplement_name, delete_enabled, custom_chars):
             st.dataframe(df.head(5))
             st.session_state["df_values"] = df
             st.session_state["all_columns_values"] = list(df.columns)
+
+
+            # 🔁 Preset definieren (optional auch am Anfang des Scripts auslagern)
+            PRESET_HIERARCHY = {
+                "Flaeche": ["Fläche BQ", "Flaeche", "Fläche Total", "Fläche Solibri"],
+                "Volumen": ["Volumen BQ", "Volumen Total", "Volumen Solibri"],
+                "Laenge": ["Länge BQ", "Laenge", "Länge Solibri"],
+                "Dicke": ["Dicke BQ", "Stärke", "Dicke Solibri"],
+                "Hoehe": ["Höhe BQ", "Hoehe", "Höhe Solibri"]
+            }
+            
+            # 🔁 Hierarchiewerte automatisch setzen, wenn leer
+            if all(not val for val in st.session_state["hierarchies_values"].values()):
+                for measure, possible_cols in PRESET_HIERARCHY.items():
+                    matched_cols = [col for col in possible_cols if col in df.columns]
+                    if matched_cols:
+                        # Nur erste passende Spalte wählen – oder ganzes matched_cols nehmen
+                        st.session_state["hierarchies_values"][measure] = [matched_cols[0]]
+
             
             # Hierarchie der Hauptmengenspalten festlegen
             dynamic_loading = st.checkbox("Dynamisches Laden der Spalten aktivieren", value=True, key="values_dynamic_loading")
