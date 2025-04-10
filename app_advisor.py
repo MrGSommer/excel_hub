@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import openpyxl
 from collections import Counter
-from excel_utils import clean_columns_values, rename_columns_to_standard, PRESET_RENAME
+from excel_utils import clean_columns_values, rename_columns_to_standard, COLUMN_PRESET
 
 
 def clean_value(value, delete_enabled, custom_chars):
