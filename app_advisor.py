@@ -42,7 +42,7 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list, confirmed_answers
     if checks["has_ebkp_h"] and checks["has_ebkp_h_sub"] and checks["has_master_cols"]:
         ebkp_sub_col = [col for col in df.columns if col.lower() == "ebkp-h sub"]
         if ebkp_sub_col and df[ebkp_sub_col[0]].notna().sum() > 0:
-            tool_scores["Mehrschichtig Bereinigen"] += 3
+            tool_scores["Mehrschichtig Bereinigen"] += 5
             reason_list.append("Struktur mit eBKP-H Sub und Masterspalten erkannt.")
 
     if checks["has_teilprojekt"] and checks["menge_spalten_count"] >= 2:
@@ -57,22 +57,20 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list, confirmed_answers
         tool_scores["Merge to Table"] += 1
         reason_list.append("Keine komplexe Struktur erkannt.")
 
-    question_weights = {
-        "Mehrschichtig Bereinigen": ["Mehrschichtig Bereinigen"],
-        "Spalten Mengen Merger": ["Spalten Mengen Merger"],
-        "Master Table": ["Master Table"]
-    }
-
-    for tool, keywords in question_weights.items():
-        if any(answer in keywords for answer in confirmed_answers):
-            tool_scores[tool] += 2  # Mehr Einfluss durch Antwortkombinationen
+    # Fragengewichtung einbeziehen
+    if "Mehrschichtig Bereinigen" in confirmed_answers:
+        tool_scores["Mehrschichtig Bereinigen"] += 3
+    if "Spalten Mengen Merger" in confirmed_answers:
+        tool_scores["Spalten Mengen Merger"] += 2
+    if "Master Table" in confirmed_answers:
+        tool_scores["Master Table"] += 2
 
     best_tool = max(tool_scores, key=tool_scores.get)
     max_score = tool_scores[best_tool]
 
-    if max_score >= 4:
+    if max_score >= 5:
         confidence = "Hoch"
-    elif max_score >= 2:
+    elif max_score >= 3:
         confidence = "Mittel"
     else:
         confidence = "Niedrig"
@@ -101,7 +99,7 @@ def app_advisor():
             st.markdown("### Zusätzliche Klärung durch Fragen")
             follow_ups = {
                 "Enthält Ihre Datei Subzeilen mit 'eBKP-H Sub'?": "Mehrschichtig Bereinigen",
-                "Sind Mengenspalten wie Fläche oder Volumen enthalten?": "Spalten Mengen Merger",
+                "Sind mehrere Mengenspalten vom gleichen Typ wie z.B. Fläche enthalten?": "Spalten Mengen Merger",
                 "Enthält die Datei mehrere Arbeitsblätter mit ähnlicher Struktur?": "Master Table"
             }
             for question, tool in follow_ups.items():
