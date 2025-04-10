@@ -48,10 +48,10 @@ with tabs[0]:
     excel_requirements()
     
 with tabs[1]:
-    values_merger()
+    values_merger(supplement_name, delete_enabled, custom_chars)
 
 with tabs[2]:
-    mehrsch_bereinigen()
+    mehrsch_bereinigen(supplement_name, delete_enabled, custom_chars)
 
 with tabs[3]:
     advanced_merge_master(supplement_name, delete_enabled, custom_chars)
