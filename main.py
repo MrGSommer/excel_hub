@@ -12,25 +12,24 @@ st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operation
 
 # Globale Einstellungen in der Sidebar mit einem expander für optionale Infos
 st.sidebar.header("Globale Einstellungen für Advanced Excel Merger")
-with st.sidebar.expander("Mehr Informationen (optional)"):
+with st.sidebar.expander("Globale Verarbeitungseinstellungen"):
     st.markdown(
         """
-        **Hinweis:**
+        **Diese Einstellungen gelten für alle Tools:**
+
+        - 🔤 **File Supplement Name:**  
+          Namenszusatz für die generierten Dateien (z. B. `default_merged_output.xlsx`).
         
-        Diese Einstellungen gelten für die Advanced Excel Merger-Module:
+        - ✂️ **Zeichen in Zellen entfernen:**  
+          Aktiviert das Entfernen von Einheiten wie `" m2"`, `" m3"`, `" kg"` etc.
         
-        - **File Supplement Name:**  
-          Definiert einen Namenszusatz für die generierten Dateien. Zum Beispiel wird bei 'default' der Dateiname `default_merged_output.xlsx` erzeugt.
-        
-        - **Zeichen in Zellen entfernen:**  
-          Aktiviert das Entfernen bestimmter Zeichen aus den Zellenwerten, z. B. Einheiten wie " m2", " m3" etc.
-        
-        - **Zusätzliche zu löschende Zeichen (kommagetrennt):**  
-          Hier können Sie weitere Zeichen eingeben, die aus den Zellen entfernt werden sollen. Mehrere Zeichen sind durch Kommas getrennt.
-        
-        Diese globalen Einstellungen werden an alle Advanced Module weitergegeben, um ein einheitliches Verhalten zu gewährleisten.
+        - ✏️ **Zusätzliche Zeichen (kommagetrennt):**  
+          Optional weitere Zeichen, die entfernt werden sollen (z. B. `"cm", "CHF"`).
+
+        Diese Einstellungen sorgen für eine konsistente Datenbereinigung über alle Module hinweg.
         """
     )
+
 supplement_name = st.sidebar.text_input("File Supplement Name", value="default", key="global_supplement")
 delete_enabled = st.sidebar.checkbox("Zeichen in Zellen entfernen", key="global_delete")
 custom_chars = st.sidebar.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="global_custom")
