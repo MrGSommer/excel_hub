@@ -5,13 +5,13 @@ from mehrschichtig_bereinigen import app as mehrsch_bereinigen
 from advanced_excel_merge_master import app as advanced_merge_master
 from advanced_excel_merge_table import app as advanced_merge_table
 from advanced_excel_merge_sheets import app as advanced_merge_sheets
-from tool_advisor import app as tool_advisor
+from tool_advisor import app_advisor
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
 st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen.")
 
-# Globale Einstellungen in der Sidebar mit einem expander für optionale Infos
+# Globale Einstellungen
 st.sidebar.header("Globale Einstellungen für Advanced Excel Merger")
 with st.sidebar.expander("Globale Verarbeitungseinstellungen"):
     st.markdown(
@@ -19,15 +19,13 @@ with st.sidebar.expander("Globale Verarbeitungseinstellungen"):
         **Diese Einstellungen gelten für alle Tools:**
 
         - 🔤 **File Supplement Name:**  
-          Namenszusatz für die generierten Dateien (z. B. `default_merged_output.xlsx`).
+          Namenszusatz für generierte Dateien (z. B. `default_merged_output.xlsx`)
         
         - ✂️ **Zeichen in Zellen entfernen:**  
-          Aktiviert das Entfernen von Einheiten wie `" m2"`, `" m3"`, `" kg"` etc.
+          Entfernt Einheiten wie `" m2"`, `" m3"`, `" kg"` usw.
         
         - ✏️ **Zusätzliche Zeichen (kommagetrennt):**  
-          Optional weitere Zeichen, die entfernt werden sollen (z. B. `"cm", "CHF"`).
-
-        Diese Einstellungen sorgen für eine konsistente Datenbereinigung über alle Module hinweg.
+          Weitere Zeichen wie `"cm", "CHF"` zur Bereinigung.
         """
     )
 
@@ -46,8 +44,8 @@ tabs = st.tabs([
 ])
 
 with tabs[0]:
-    tool_advisor()
-    
+    app_advisor()
+
 with tabs[1]:
     excel_requirements()
 
@@ -65,5 +63,3 @@ with tabs[5]:
 
 with tabs[6]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
-
-
