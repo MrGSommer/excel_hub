@@ -15,7 +15,7 @@ def app():
             "ito_templates/MehrschichtigInklEinschichtig.ito"
         ],
         "SIA 416": [
-            "ito_templates/ARC Treppen.ito"
+            "ito_templates/SIA416.ito"
         ],
         "Bauteilkategorien (Elementtypen)": [
             "ito_templates/ARC Covering.ito",
