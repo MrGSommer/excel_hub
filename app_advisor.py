@@ -5,7 +5,6 @@ import openpyxl
 from collections import Counter
 from excel_utils import clean_columns_values, rename_columns_to_standard, COLUMN_PRESET
 
-
 def clean_value(value, delete_enabled, custom_chars):
     if isinstance(value, str):
         unwanted = [" m2", " m3", " m", "Nicht klassifiziert", "---"]
@@ -16,45 +15,50 @@ def clean_value(value, delete_enabled, custom_chars):
             value = value.replace(u, "")
     return value
 
-
 def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str, str]:
     cols = df.columns.str.lower()
     confidence = "Mittel"
 
-    if "teilprojekt" in cols:
-        if any(name in cols for name in ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]):
-            confidence = "Hoch"
-            return (
-                "Spalten Mengen Merger",
-                "Die Datei enthält 'Teilprojekt' und Mengenspalten wie Fläche oder Volumen. Diese eignen sich zum Zusammenführen.",
-                confidence
-            )
+    # Zeilen analysieren (bis zu 30)
+    sample_rows = df.head(30).fillna("").astype(str).apply(lambda row: " ".join(row).lower(), axis=1)
+    full_text = " ".join(sample_rows)
 
+    # === Mehrschichtig Bereinigen ===
     if "ebkp-h" in cols and "ebkp-h sub" in cols:
         master_cols = ["teilprojekt", "geschoss", "unter terrain"]
         if any(col in cols for col in master_cols):
-            confidence = "Hoch"
-            return (
-                "Mehrschichtig Bereinigen",
-                "eBKP-H und eBKP-H Sub sind vorhanden, ebenso leere Masterspalten – spricht für mehrschichtige Daten.",
-                confidence
-            )
+            subrows = df[df["eBKP-H Sub"].notna()].shape[0] if "eBKP-H Sub" in df.columns else 0
+            if subrows >= 1:
+                return (
+                    "Mehrschichtig Bereinigen",
+                    "eBKP-H und eBKP-H Sub sind vorhanden, ebenso Masterspalten – spricht für mehrschichtige Hierarchie.",
+                    "Hoch"
+                )
 
-    if len(sheetnames) > 1:
-        confidence = "Hoch"
+    # === Spalten Mengen Merger ===
+    mengenbegriffe = ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]
+    mengen_spalten = [col for col in mengenbegriffe if any(col in c for c in cols)]
+    if "teilprojekt" in cols and len(mengen_spalten) >= 2:
         return (
-            "Master Table",
-            "Mehrere Arbeitsblätter in einer Datei erkannt – diese lassen sich zu einer Master-Tabelle zusammenführen.",
-            confidence
+            "Spalten Mengen Merger",
+            "Mehrere gleichartige Mengenspalten (z. B. Fläche BQ, Fläche Total) erkannt – Zusammenführung empfohlen.",
+            "Hoch"
         )
 
-    confidence = "Niedrig"
+    # === Master Table ===
+    if len(sheetnames) > 1:
+        return (
+            "Master Table",
+            "Mehrere Arbeitsblätter in einer Datei erkannt – geeignet für einen Masterzusammenzug.",
+            "Hoch"
+        )
+
+    # === Merge to Table ===
     return (
         "Merge to Table",
-        "Einzelblattstruktur ohne spezielle Merkmale – ideal zum Zusammenführen mehrerer Dateien auf Tabellenebene.",
-        confidence
+        "Einzelblatt ohne spezifische Strukturen – geeignet für allgemeine Tabellenzusammenführung.",
+        "Mittel"
     )
-
 
 def app_advisor():
     st.header("Tool-Beratung basierend auf Ihrer Excel-Datei")
@@ -72,6 +76,16 @@ def app_advisor():
 
         st.success(f"**Empfohlenes Tool:** {suggested_tool}")
         st.info(f"{reason} (Vertrauenswürdigkeit: **{confidence}**)")
+
+        if confidence in ["Mittel", "Niedrig"]:
+            st.markdown("---")
+            st.markdown("### Zusätzliche Klärung durch Fragen")
+            if st.checkbox("Sind mehrere Arbeitsblätter mit gleichem Aufbau in Ihrer Datei vorhanden?"):
+                st.info("➡️ Das Tool **Master Table** könnte eine passende Alternative sein.")
+            if st.checkbox("Enthält Ihre Datei Subzeilen mit 'eBKP-H Sub'?"):
+                st.info("➡️ Das Tool **Mehrschichtig Bereinigen** könnte sinnvoll sein.")
+            if st.checkbox("Sind Mengenspalten wie Fläche oder Volumen enthalten?"):
+                st.info("➡️ Das Tool **Spalten Mengen Merger** ist wahrscheinlich sinnvoll.")
 
         st.subheader("Vorschau der ersten 10 Zeilen")
         st.dataframe(df.head(10))
@@ -98,7 +112,7 @@ def app_advisor():
         with st.expander("Mögliche Umbenennung zu Standardnamen"):
             renamed = rename_columns_to_standard(df.copy())
             st.dataframe(renamed.head(5))
-            st.caption("Spaltennamen wurden gemäss Preset-Namenskonvention angepasst (z.B. 'Fläche BQ' → 'Flaeche (m2)')")
+            st.caption("Spaltennamen wurden gemäss Preset-Namenskonvention angepasst (z. B. 'Fläche BQ' → 'Fläche (m2)')")
 
     except Exception as e:
         st.error(f"Fehler beim Verarbeiten der Datei: {e}")
