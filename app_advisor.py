@@ -1,13 +1,27 @@
 import streamlit as st
 import pandas as pd
-import openpyxl
 import io
+import openpyxl
+from collections import Counter
+from excel_utils import clean_columns_values, rename_columns_to_standard
+
+
+def clean_value(value, delete_enabled, custom_chars):
+    if isinstance(value, str):
+        unwanted = [" m2", " m3", " m", "Nicht klassifiziert", "---"]
+        if delete_enabled and custom_chars.strip():
+            custom_list = [x.strip() for x in custom_chars.split(",") if x.strip()]
+            unwanted.extend(custom_list)
+        for u in unwanted:
+            value = value.replace(u, "")
+    return value
+
 
 def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str]:
     cols = df.columns.str.lower()
 
     if "teilprojekt" in cols:
-        if any(name in cols for name in ["fl\xe4che", "flaeche", "volumen", "dicke", "l\xe4nge", "laenge", "h\xf6he", "hoehe"]):
+        if any(name in cols for name in ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]):
             return (
                 "Spalten Mengen Merger",
                 "Die Datei enthält 'Teilprojekt' und Mengenspalten wie Fläche oder Volumen. Diese eignen sich zum Zusammenführen."
@@ -32,7 +46,8 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str
         "Einzelblattstruktur ohne spezielle Merkmale – ideal zum Zusammenführen mehrerer Dateien auf Tabellenebene."
     )
 
-def app():
+
+def app_advisor():
     st.header("Tool-Beratung basierend auf Ihrer Excel-Datei")
     st.markdown("Laden Sie eine Beispiel-Datei hoch. Wir analysieren die Struktur und schlagen Ihnen das passende Tool vor.")
 
