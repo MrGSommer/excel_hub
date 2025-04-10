@@ -17,7 +17,7 @@ def clean_value(value, delete_enabled, custom_chars):
     return value
 
 
-def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str, str]:
+def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list, confirmed_answers: list[str] = []) -> tuple[str, str, str]:
     cols = df.columns.str.lower()
     lower_cols = cols.tolist()
     full_text = " ".join(df.head(50).fillna("").astype(str).apply(lambda row: " ".join(row).lower(), axis=1))
@@ -57,12 +57,17 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str
         tool_scores["Merge to Table"] += 1
         reason_list.append("Keine komplexe Struktur erkannt.")
 
+    # Zusatzgewichtung aus Checkbox-Antworten
+    for answer in confirmed_answers:
+        if answer in tool_scores:
+            tool_scores[answer] += 1
+
     best_tool = max(tool_scores, key=tool_scores.get)
     max_score = tool_scores[best_tool]
 
-    if max_score >= 3:
+    if max_score >= 4:
         confidence = "Hoch"
-    elif max_score == 2:
+    elif max_score >= 2:
         confidence = "Mittel"
     else:
         confidence = "Niedrig"
@@ -82,27 +87,30 @@ def app_advisor():
         xls = pd.ExcelFile(uploaded_file, engine="openpyxl")
         sheet_name = xls.sheet_names[0]
         df = pd.read_excel(xls, sheet_name=sheet_name, engine="openpyxl")
-        suggested_tool, reason, confidence = detect_tool_suggestion(df, xls.sheet_names)
 
-        color = {"Hoch": "🟢", "Mittel": "🟡", "Niedrig": "🔴"}[confidence]
-        st.success(f"**Empfohlenes Tool:** {suggested_tool}")
-        st.info(f"{reason} (Vertrauenswürdigkeit: {color} **{confidence}**) ")
+        confirmed_tools = []
+        suggested_tool, reason, confidence = detect_tool_suggestion(df, xls.sheet_names)
 
         if confidence in ["Mittel", "Niedrig"]:
             st.markdown("---")
             st.markdown("### Zusätzliche Klärung durch Fragen")
             follow_ups = {
                 "Enthält Ihre Datei Subzeilen mit 'eBKP-H Sub'?": "Mehrschichtig Bereinigen",
-                "Sind mehrere Mengenspalten vom gleichen Typ wie z.B. Fläche enthalten?": "Spalten Mengen Merger",
+                "Sind Mengenspalten wie Fläche oder Volumen enthalten?": "Spalten Mengen Merger",
                 "Enthält die Datei mehrere Arbeitsblätter mit ähnlicher Struktur?": "Master Table"
             }
-            confirmed_tools = []
             for question, tool in follow_ups.items():
                 if st.checkbox(question):
                     confirmed_tools.append(tool)
 
-            if confirmed_tools:
-                st.markdown(f"🔍 Basierend auf Ihren Antworten könnte eines dieser Tools passend sein: **{', '.join(confirmed_tools)}**")
+            suggested_tool, reason, confidence = detect_tool_suggestion(df, xls.sheet_names, confirmed_tools)
+
+        color = {"Hoch": "🟢", "Mittel": "🟡", "Niedrig": "🔴"}[confidence]
+        st.success(f"**Empfohlenes Tool:** {suggested_tool}")
+        st.info(f"{reason} (Vertrauenswürdigkeit: {color} **{confidence}**) ")
+
+        if confirmed_tools:
+            st.markdown(f"🔍 Ihre Antworten wurden berücksichtigt: **{', '.join(set(confirmed_tools))}**")
 
         st.subheader("Vorschau der ersten 10 Zeilen")
         st.dataframe(df.head(10))
