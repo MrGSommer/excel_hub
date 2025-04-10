@@ -13,7 +13,7 @@ def app():
     ito_files = {
         "Mehrschichtig": [
             "ito_templates/ARC Fenster.ito",
-            "ito_templates/ARC Stützen.ito"
+            "ito_templates/ARC Stütuen.ito"
         ],
         "SIA 416": [
             "ito_templates/ARC Treppen.ito"
@@ -27,8 +27,8 @@ def app():
     selected = st.selectbox("Vorlage auswählen", list(ito_files.keys()))
     file_paths = ito_files[selected]
 
-    for path in file_paths:
-        st.write(f"Versuche, die Datei zu öffnen: {path}")
+    if len(file_paths) == 1:
+        path = file_paths[0]
         try:
             with open(path, "rb") as f:
                 st.download_button(
@@ -39,6 +39,19 @@ def app():
                 )
         except FileNotFoundError:
             st.error(f"Datei nicht gefunden: {path}")
-        except Exception as e:
-            st.error(f"Fehler beim Öffnen der Datei {path}: {e}")
-
+    else:
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w") as zip_file:
+            for path in file_paths:
+                try:
+                    with open(path, "rb") as f:
+                        zip_file.writestr(os.path.basename(path), f.read())
+                except FileNotFoundError:
+                    st.warning(f"Fehlende Datei: {path}")
+        zip_buffer.seek(0)
+        st.download_button(
+            label=f"📦 Alle ITOs für '{selected}' als ZIP herunterladen",
+            data=zip_buffer,
+            file_name=f"{selected.replace(' ', '_')}.zip",
+            mime="application/zip"
+        )
