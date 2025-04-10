@@ -59,11 +59,11 @@ def app(supplement_name, delete_enabled, custom_chars):
 
             # 🔁 Preset definieren (optional auch am Anfang des Scripts auslagern)
             PRESET_HIERARCHY = {
-                "Flaeche": ["Fläche BQ", "Flaeche", "Fläche Total", "Fläche Solibri"],
-                "Volumen": ["Volumen BQ", "Volumen Total", "Volumen Solibri"],
-                "Laenge": ["Länge BQ", "Laenge", "Länge Solibri"],
-                "Dicke": ["Dicke BQ", "Stärke", "Dicke Solibri"],
-                "Hoehe": ["Höhe BQ", "Hoehe", "Höhe Solibri"]
+                "Flaeche": ["Fläche", "Fläche BQ", "Flaeche", "Fläche Total", "Fläche Solibri"],
+                "Volumen": ["Volumen", "Volumen BQ", "Volumen Total", "Volumen Solibri"],
+                "Laenge": ["Länge", "Länge BQ", "Laenge", "Länge Solibri"],
+                "Dicke": ["Dicke", "Dicke BQ", "Stärke", "Dicke Solibri"],
+                "Hoehe": ["Höhe", "Höhe BQ", "Hoehe", "Höhe Solibri"]
             }
             
             # 🔁 Hierarchiewerte automatisch setzen, wenn leer
