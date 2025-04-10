@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import openpyxl
+from excel_utils import clean_columns_values, rename_columns_to_standard
 
 def clean_value(value, delete_enabled, custom_chars):
     if isinstance(value, str):
@@ -28,18 +29,17 @@ def detect_header(sheet, max_rows_check=10):
 def app(supplement_name, delete_enabled, custom_chars):
     st.header("Master Table")
     st.markdown("Fasst ausgewählte Arbeitsblätter einer Excel-Datei zu einer Mastertabelle zusammen.")
-    
-    # Eingaben aus main.py werden übergeben – keine eigenen Sidebar-Eingaben hier
+
     uploaded_file = st.file_uploader("Excel-Datei für Master Table Merge hochladen", type=["xlsx", "xls"], key="master_file_uploader")
     if not uploaded_file:
         return
-    
+
     try:
         wb = openpyxl.load_workbook(uploaded_file, data_only=True)
     except Exception as e:
         st.error(f"Fehler beim Laden der Arbeitsmappe: {e}")
         return
-    
+
     sheets = wb.sheetnames
     selected_sheets = st.multiselect("Arbeitsblätter auswählen", sheets, key="master_sheet_select")
     if not selected_sheets:
@@ -50,7 +50,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     all_columns = set()
     progress_bar = st.progress(0)
     total = len(selected_sheets)
-    
+
     for i, sheet_name in enumerate(selected_sheets):
         sheet = wb[sheet_name]
         header_row, headers = detect_header(sheet)
@@ -65,26 +65,29 @@ def app(supplement_name, delete_enabled, custom_chars):
             merged_data.append(row_dict)
             all_columns.update(row_dict.keys())
         progress_bar.progress((i + 1) / total)
-    
+
     if not merged_data:
         st.error("Keine Daten zusammengeführt.")
         return
-    
+
     sorted_columns = list(all_columns)
     if "SheetName" in sorted_columns:
         sorted_columns.remove("SheetName")
         sorted_columns = ["SheetName"] + sorted_columns
-        
+
     df_master = pd.DataFrame(merged_data, columns=sorted_columns)
+    df_master = rename_columns_to_standard(df_master)
+    df_master = clean_columns_values(df_master, delete_enabled, custom_chars)
+
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
         df_master.to_excel(writer, index=False, sheet_name="MasterTable")
     output.seek(0)
-    
+
     st.success("Master Table Merge abgeschlossen.")
     st.download_button(
-        "Download Master Table Excel", 
-        data=output, 
+        "Download Master Table Excel",
+        data=output,
         file_name=f"{supplement_name}_merged_master_table.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="master_download_button"
