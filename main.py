@@ -6,6 +6,7 @@ from advanced_excel_merge_master import app as advanced_merge_master
 from advanced_excel_merge_table import app as advanced_merge_table
 from advanced_excel_merge_sheets import app as advanced_merge_sheets
 from app_advisor import app_advisor
+from ito_download import app as download_templates
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
@@ -40,7 +41,8 @@ tabs = st.tabs([
     "Mehrschichtig Bereinigen", 
     "Master Table", 
     "Merge to Table", 
-    "Merge to Sheets"
+    "Merge to Sheets",
+    "Download Templates"
 ])
 
 with tabs[0]:
@@ -63,3 +65,6 @@ with tabs[5]:
 
 with tabs[6]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
+
+with tabs[7]:
+    download_templates()
