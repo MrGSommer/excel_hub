@@ -52,12 +52,7 @@ def detect_header_row(df_raw, suchbegriff="Teilprojekt"):
     return 0
 
 def apply_preset_hierarchy(df, existing_hierarchy, preset=None):
-    """
-    Setzt die hierarchischen Spalten automatisch anhand eines Presets,
-    wenn noch keine Auswahl vorhanden ist.
-    """
     if preset is None:
-        # Mapping von alten Kategorienamen zu neuen Zielnamen (KEYS aus COLUMN_PRESET)
         preset = {
             "Flaeche": COLUMN_PRESET["Fläche (m2)"],
             "Volumen": COLUMN_PRESET["Volumen (m3)"],
@@ -67,11 +62,21 @@ def apply_preset_hierarchy(df, existing_hierarchy, preset=None):
         }
 
     if all(not val for val in existing_hierarchy.values()):
-        for measure, possible_cols in preset.items():
-            matched_cols = [col for col in possible_cols if col in df.columns]
-            ordered_matches = [col for col in possible_cols if col in matched_cols]
-            if ordered_matches:
-                existing_hierarchy[measure] = ordered_matches
+        for measure, keywords in preset.items():
+            detected = []
+            # 1. Spalten mit 'BQ' im Namen
+            detected += [col for col in df.columns if "bq" in col.lower() and any(k.lower() in col.lower() for k in keywords)]
+            # 2. Exakte Matches aus Preset
+            detected += [col for col in keywords if col in df.columns and col not in detected]
+            # 3. Weitere Spalten mit passenden Keywords
+            detected += [col for col in df.columns if any(k.lower() in col.lower() for k in keywords) and col not in detected]
+            # 4. Spalten mit 'Solibri' im Namen
+            solibri = [col for col in detected if "solibri" in col.lower()]
+            detected = [col for col in detected if col not in solibri] + solibri
+
+            if detected:
+                existing_hierarchy[measure] = detected
+
     return existing_hierarchy
 
 def rename_columns_to_standard(df):
