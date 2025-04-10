@@ -5,7 +5,7 @@ from mehrschichtig_bereinigen import app as mehrsch_bereinigen
 from advanced_excel_merge_master import app as advanced_merge_master
 from advanced_excel_merge_table import app as advanced_merge_table
 from advanced_excel_merge_sheets import app as advanced_merge_sheets
-from tool_advisor import app_advisor
+from app_advisor import app_advisor
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
