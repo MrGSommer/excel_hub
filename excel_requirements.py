@@ -2,125 +2,143 @@ import streamlit as st
 
 def app():
     st.header("Excel-Anforderungen für eine erfolgreiche Verarbeitung")
-    st.markdown("Um sicherzustellen, dass Ihre Excel-Dateien korrekt bearbeitet werden, beachten Sie bitte die folgenden Strukturvorgaben für die einzelnen Tools:")
+    st.markdown("Bevor Sie eines der Tools verwenden, stellen Sie bitte sicher, dass Ihre Excel-Dateien folgende Strukturvorgaben erfüllen. Nur so kann eine korrekte und automatisierte Verarbeitung garantiert werden.")
 
     with st.expander("1. Spalten Mengen Merger"):
         st.subheader("Ziel")
-        st.markdown("Zusammenführen ausgewählter Mengenspalten (z.B. Dicke, Flaeche, Volumen, Laenge, Hoehe) zu einem kombinierten Wert.")
-    
+        st.markdown("Zusammenführen mehrerer Mengenspalten (z. B. Dicke, Flaeche, Volumen, Laenge, Hoehe) in eine standardisierte Spalte mit definiertem Namen.")
+
         st.subheader("Erforderliche Struktur")
         st.markdown(
             """
             - **Header-Erkennung:**  
-              Der Header muss den Zellwert **Teilprojekt** enthalten.
-            
-            - **Automatische Erkennung von Mengenspalten (Preset):**  
-              Das Tool erkennt automatisch passende Spaltennamen für jede Mengenkategorie – in folgender Priorität:
-    
-                - **Flaeche:** `Fläche`, `Fläche BQ`, `Fläche Total`, `Fläche Solibri`  
-                - **Volumen:** `Volumen`, `Volumen BQ`, `Volumen Solibri`  
-                - **Laenge:** `Länge`, `Länge BQ`, `Länge Solibri`  
-                - **Dicke:** `Dicke`, `Dicke BQ`, `Dicke Solibri`  
-                - **Hoehe:** `Höhe`, `Höhe BQ`, `Höhe Solibri`  
-    
-              Es werden alle im Excel vorhandenen Spalten aus der obigen Liste automatisch vorausgewählt. Die Reihenfolge entspricht der Priorität.
-    
-            - **Datenformat:**  
-              - Alle Mengenspalten sollten numerisch sein (Einheit: m, m², m³)  
-              - Einheiten wie " m2", " m3", " m" werden automatisch entfernt und die Werte in Dezimalzahlen konvertiert.
-    
-            - **Weitere Spalten:**  
-              Zusätzliche Daten können vorhanden sein, werden aber ggf. nach dem Merge entfernt.
-    
+              Der Header muss eine Zelle mit dem Inhalt **Teilprojekt** enthalten.  
+              Der Header wird automatisch erkannt (erste Zeile mit dem Begriff "Teilprojekt").
+
+            - **Mengenspalten (automatische Erkennung & Umbenennung):**  
+              Folgende Spalten werden automatisch erkannt und in einheitliche Namen umbenannt:
+              - **Fläche (m2):** `Fläche`, `Flaeche`, `Fläche BQ`, `Fläche Total`, `Fläche Solibri`
+              - **Volumen (m3):** `Volumen`, `Volumen BQ`, `Volumen Total`, `Volumen Solibri`
+              - **Länge (m):** `Länge`, `Laenge`, `Länge BQ`, `Länge Solibri`
+              - **Dicke (m):** `Dicke`, `Stärke`, `Dicke BQ`, `Dicke Solibri`
+              - **Höhe (m):** `Höhe`, `Hoehe`, `Höhe BQ`, `Höhe Solibri`
+
+            - **Automatisierte Verarbeitung:**  
+              - Alle genannten Spalten werden in der definierten Priorität zu einer Zielsummenspalte gemerged.
+              - Nicht benötigte Spalten werden entfernt.
+              - Werte werden als Dezimalzahl (float) interpretiert.
+              - Einheiten wie `" m2"`, `" m"`, `" m3"` etc. werden automatisch entfernt.
+              - Weitere Zeichen können optional über die Sidebar-Einstellungen entfernt werden.
+
             - **Beispiel:**
-    
-              | Teilprojekt | Dicke | Flaeche | Volumen | Laenge | Hoehe | Anderes |
-              |-------------|-------|---------|---------|--------|-------|---------|
-              | TP1         | 0.2   | 15.0    | 3.0     | 5.0    | 2.5   | ...     |
+
+              | Teilprojekt | Fläche | Fläche BQ | Volumen | Laenge | Anderes |
+              |-------------|--------|------------|---------|--------|---------|
+              | TP1         | 12.0   |            | 3.0     | 2.5    | Info    |
             """
         )
-    
 
     with st.expander("2. Mehrschichtig Bereinigen"):
         st.subheader("Ziel")
-        st.markdown("Bereinigung von mehrschichtigen Excel-Daten mit Hierarchie (Mutter- und Subzeilen).")
+        st.markdown("Automatische Bereinigung von mehrschichtigen Excel-Daten mit logischer Trennung von Mutter- und Subzeilen.")
+
         st.subheader("Erforderliche Struktur")
         st.markdown(
             """
-            - **Masterspalten:**  
-              *Teilprojekt*, *Geschoss*, *Unter Terrain*  
-              - **Mutterzeile:** Enthält gültige Werte.  
-              - **Subzeile:** Diese Spalten sind leer und werden per Pre-Mapping ergänzt.
-            - **Wichtige Zusatzspalten:**  
-              - **eBKP-H:** Zur Klassifizierung der Hauptelemente.  
-              - **eBKP-H Sub:** Zur Identifikation von Subzeilen.
+            - **Erforderliche Spalten:**  
+              - `Teilprojekt`  
+              - `Geschoss`  
+              - `Unter Terrain`  
+              Diese werden als Masterspalten verwendet, um die Mutterzeilen zu erkennen.
+
+            - **Zusätzliche Klassifizierung:**  
+              - `eBKP-H`: Klassifizierung der Mutterzeile  
+              - `eBKP-H Sub`: Klassifizierung der Subzeilen
+
+            - **Funktion:**  
+              - Mutterzeilen ohne gültige Klassifizierung (z. B. `"Nicht klassifiziert"`) werden entfernt, wenn sie keine zugehörige gültige Subzeile haben.
+              - Subzeilen mit gültigem `eBKP-H Sub` werden extrahiert und in neue Einträge mit übertragenen Masterdaten überführt.
+              - Einheitliche Mengenspalten werden auch hier bereinigt, umbenannt und numerisch interpretiert.
+
             - **Beispiel:**
-              
-              | Teilprojekt | Geschoss | Unter Terrain | eBKP-H         | eBKP-H Sub | GUID    |
-              |-------------|----------|---------------|----------------|------------|---------|
-              | TP1         | G1       | Wert1         | Klassifiziert  |            | 123-abc |
-              |             |          |               |                | Unterwert1 | 123-abc |
+
+              | Teilprojekt | Geschoss | Unter Terrain | eBKP-H         | eBKP-H Sub       | GUID     |
+              |-------------|----------|----------------|----------------|------------------|----------|
+              | TP1         | EG       | nein           | Nicht klassifiziert | Wärmedämmung  | A1B2C3   |
+              |             |          |                |                | Wärmeschutzplatte | A1B2C3   |
             """
         )
 
-    with st.expander("3. Master Table (Advanced Merger - Master Table)"):
+    with st.expander("3. Master Table"):
         st.subheader("Ziel")
-        st.markdown("Zusammenführen mehrerer Arbeitsblätter einer Excel-Datei zu einer einzigen Mastertabelle.")
+        st.markdown("Zusammenführen mehrerer Arbeitsblätter einer Excel-Datei zu einer einheitlichen Tabelle.")
+
         st.subheader("Erforderliche Struktur")
         st.markdown(
             """
-            - **Header-Erkennung:**  
-              Jedes Arbeitsblatt muss einen Header haben (z.B. anhand der Zeile mit den meisten nicht-leeren Zellen).
-            - **Datenfelder:**  
-              Alle Spalten der ausgewählten Blätter werden übernommen.
-            - **Zusätzliche Spalte:**  
-              Eine Spalte **SheetName** wird hinzugefügt, um die Herkunft jeder Zeile anzugeben.
+            - Jedes Arbeitsblatt muss eine erkennbare Headerzeile enthalten.  
+              Die erste Zeile mit den meisten nicht-leeren Zellen wird als Header interpretiert.
+
+            - Alle Blätter werden automatisch standardisiert:  
+              - Spaltennamen werden vereinheitlicht.  
+              - Einheiten in Zellen werden entfernt.  
+              - Inhalte werden gereinigt und numerisch konvertiert.
+
+            - Eine zusätzliche Spalte **SheetName** gibt den Ursprung des Datensatzes an.
+
             - **Beispiel:**
-              
-              | SheetName | Spalte1 | Spalte2 | ... |
-              |-----------|---------|---------|-----|
-              | Blatt1    | Wert1   | Wert2   | ... |
-              | Blatt2    | WertA   | WertB   | ... |
+
+              | SheetName | Dicke | Fläche (m2) | GUID     |
+              |-----------|--------|--------------|----------|
+              | Blatt1    | 0.3    | 12.5         | A1234    |
             """
         )
 
-    with st.expander("4. Merge to Table (Advanced Merger - Merge to Table)"):
+    with st.expander("4. Merge to Table"):
         st.subheader("Ziel")
-        st.markdown("Mehrere Excel-Dateien werden zu einer einzigen Tabelle zusammengeführt. Die Spalten werden basierend auf ihrer Häufigkeit sortiert.")
+        st.markdown("Zusammenführen mehrerer Excel-Dateien zu einer einheitlichen Tabelle. Die Spalten werden nach Häufigkeit sortiert.")
+
         st.subheader("Erforderliche Struktur")
         st.markdown(
             """
-            - **Header:**  
-              Jede Excel-Datei muss eine Header-Zeile besitzen (normalerweise die erste Zeile).
-            - **Datenzeilen:**  
-              Die Zeilen folgen direkt nach dem Header.
-            - **Konsistenz:**  
-              Die Spaltennamen sollten weitgehend übereinstimmen, um eine korrekte Zusammenführung zu ermöglichen.
+            - Jede Datei muss:
+              - Eine Headerzeile besitzen (erste Zeile).  
+              - Darunter mindestens eine Datenzeile enthalten.
+
+            - Alle Inhalte werden automatisch bereinigt:  
+              - Standardisierte Spaltennamen  
+              - Entfernte Einheiten  
+              - Float-Konvertierung  
+              - Optional: weitere Zeichenbereinigung
+
             - **Beispiel:**
-              
-              | Spalte1 | Spalte2 | Spalte3 |
-              |---------|---------|---------|
-              | Wert1   | Wert2   | Wert3   |
+
+              | Volumen | Dicke | Fläche | Zusatzinfo |
+              |---------|--------|--------|-------------|
+              | 4.3     | 0.25   | 22.4   | Bemerkung   |
             """
         )
 
-    with st.expander("5. Merge to Sheets (Advanced Merger - Merge to Sheets)"):
+    with st.expander("5. Merge to Sheets"):
         st.subheader("Ziel")
-        st.markdown("Mehrere Excel-Dateien werden in eine neue Arbeitsmappe übernommen, wobei jede Datei als eigenes Blatt erscheint.")
+        st.markdown("Mehrere Excel-Dateien werden in ein neues Dokument übernommen – je Datei ein neues Arbeitsblatt.")
+
         st.subheader("Erforderliche Struktur")
         st.markdown(
             """
-            - **Einzeldateien:**  
-              Jede Datei muss mindestens ein Arbeitsblatt mit Daten enthalten.
-            - **Struktur:**  
-              Das Format und die Struktur der einzelnen Blätter bleiben unverändert.
-            - **Blattname:**  
-              Der Blattname wird aus dem Dateinamen abgeleitet (maximal 30 Zeichen).
-            - **Beispiel:**
-              
-              Datei 1 wird zu Blatt "Datei1", Datei 2 zu Blatt "Datei2" etc.
+            - Jedes File muss mindestens ein Blatt mit Daten beinhalten.
+            - Der erste Tab jeder Datei wird automatisch übernommen.
+            - Blattnamen werden aus dem Dateinamen generiert (gekürzt auf 30 Zeichen).
+
+            - Inhalte werden automatisiert bereinigt:
+              - Zeichen wie `" m2"`, `" m3"` etc. entfernt
+              - Float-Parsing aktiv
+              - Weitere optional definierbare Zeichenbereinigung
+
+            - **Beispiel:**  
+              Datei "Projekt_A.xlsx" → Tab "Projekt_A"
             """
         )
 
     st.markdown("---")
-    st.info("Überprüfen Sie Ihre Excel-Dateien anhand dieser Anforderungen, bevor Sie eines der Tools verwenden. Eine konsistente Datenstruktur ist entscheidend für einen erfolgreichen Merge und die anschließende Bearbeitung.")
+    st.info("Eine saubere und konsistente Excel-Struktur ist essenziell für die erfolgreiche Ausführung aller Tools. Prüfen Sie Ihre Dateien sorgfältig vor dem Upload.")
