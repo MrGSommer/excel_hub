@@ -21,6 +21,9 @@ def app():
         "Bauteilkategorien (Elementtypen)": [
             "ito_templates/ARC Covering.ito",
             "ito_templates/ARC Decken.ito"
+        ],
+        "Master Auswertung": [
+            "ito_template/ARC Master.ito"
         ]
     }
 
