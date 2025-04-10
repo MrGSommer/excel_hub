@@ -5,6 +5,7 @@ import openpyxl
 from collections import Counter
 from excel_utils import clean_columns_values, rename_columns_to_standard, COLUMN_PRESET
 
+
 def clean_value(value, delete_enabled, custom_chars):
     if isinstance(value, str):
         unwanted = [" m2", " m3", " m", "Nicht klassifiziert", "---"]
@@ -15,6 +16,7 @@ def clean_value(value, delete_enabled, custom_chars):
             value = value.replace(u, "")
     return value
 
+
 def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str, str]:
     cols = df.columns.str.lower()
     confidence = "Mittel"
@@ -23,42 +25,47 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list) -> tuple[str, str
     sample_rows = df.head(30).fillna("").astype(str).apply(lambda row: " ".join(row).lower(), axis=1)
     full_text = " ".join(sample_rows)
 
-    # === Mehrschichtig Bereinigen ===
-    if "ebkp-h" in cols and "ebkp-h sub" in cols:
+    # Kriterien für mehrschichtige Daten (höchste Priorität)
+    if any(col.lower() == "ebkp-h" for col in df.columns) and any(col.lower() == "ebkp-h sub" for col in df.columns):
         master_cols = ["teilprojekt", "geschoss", "unter terrain"]
         if any(col in cols for col in master_cols):
-            subrows = df[df["eBKP-H Sub"].notna()].shape[0] if "eBKP-H Sub" in df.columns else 0
+            subrows = df[[c for c in df.columns if c.lower() == "ebkp-h sub"][0]].notna().sum()
             if subrows >= 1:
+                confidence = "Hoch"
                 return (
                     "Mehrschichtig Bereinigen",
                     "eBKP-H und eBKP-H Sub sind vorhanden, ebenso Masterspalten – spricht für mehrschichtige Hierarchie.",
-                    "Hoch"
+                    confidence
                 )
 
-    # === Spalten Mengen Merger ===
+    # Kriterien für Spalten Mengen Merger
     mengenbegriffe = ["fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]
-    mengen_spalten = [col for col in mengenbegriffe if any(col in c for c in cols)]
-    if "teilprojekt" in cols and len(mengen_spalten) >= 2:
-        return (
-            "Spalten Mengen Merger",
-            "Mehrere gleichartige Mengenspalten (z. B. Fläche BQ, Fläche Total) erkannt – Zusammenführung empfohlen.",
-            "Hoch"
-        )
+    if "teilprojekt" in cols:
+        if any(term in cols for term in mengenbegriffe) or any(term in full_text for term in mengenbegriffe):
+            confidence = "Hoch"
+            return (
+                "Spalten Mengen Merger",
+                "Die Datei enthält 'Teilprojekt' und Hinweise auf Mengenspalten wie Fläche oder Volumen. Diese eignen sich zum Zusammenführen.",
+                confidence
+            )
 
-    # === Master Table ===
+    # Master Table bei mehreren Sheets
     if len(sheetnames) > 1:
+        confidence = "Hoch"
         return (
             "Master Table",
-            "Mehrere Arbeitsblätter in einer Datei erkannt – geeignet für einen Masterzusammenzug.",
-            "Hoch"
+            "Mehrere Arbeitsblätter in einer Datei erkannt – diese lassen sich zu einer Master-Tabelle zusammenführen.",
+            confidence
         )
 
-    # === Merge to Table ===
+    # Default-Fallback
+    confidence = "Niedrig"
     return (
         "Merge to Table",
-        "Einzelblatt ohne spezifische Strukturen – geeignet für allgemeine Tabellenzusammenführung.",
-        "Mittel"
+        "Einzelblattstruktur ohne spezielle Merkmale – ideal zum Zusammenführen mehrerer Dateien auf Tabellenebene.",
+        confidence
     )
+
 
 def app_advisor():
     st.header("Tool-Beratung basierend auf Ihrer Excel-Datei")
@@ -91,18 +98,15 @@ def app_advisor():
         st.dataframe(df.head(10))
 
         with st.expander("Analyse der Strukturmerkmale"):
-            def highlight_found(colname):
-                return "✅" if colname.lower() in df.columns.str.lower().tolist() else "❌"
-
+            lower_cols = [col.lower() for col in df.columns]
             checks = {
-                "Teilprojekt": highlight_found("Teilprojekt"),
-                "eBKP-H": highlight_found("eBKP-H"),
-                "eBKP-H Sub": highlight_found("eBKP-H Sub"),
-                "Mengenspalten (z.B. Fläche, Volumen...)": any(col.lower() in df.columns.str.lower().tolist() for col in [
-                    "fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"])
+                "Teilprojekt": "✅" if "teilprojekt" in lower_cols else "❌",
+                "eBKP-H": "✅" if "ebkp-h" in lower_cols else "❌",
+                "eBKP-H Sub": "✅" if "ebkp-h sub" in lower_cols else "❌",
+                "Mengenspalten (z.B. Fläche, Volumen...)": "✅" if any(term in lower_cols for term in [
+                    "fläche", "flaeche", "volumen", "dicke", "länge", "laenge", "höhe", "hoehe"]) else "❌"
             }
-            for label, found in checks.items():
-                symbol = "✅" if found else "❌"
+            for label, symbol in checks.items():
                 st.write(f"{symbol} {label}")
 
         with st.expander("Weitere Informationen zur Datei"):
