@@ -13,7 +13,7 @@ def app():
     ito_files = {
         "Mehrschichtig": [
             "ito_templates/ARC Fenster.ito",
-            "ito_templates/ARC Stütuen.ito"
+            "ito_templates/ARC Stützen.ito"
         ],
         "SIA 416": [
             "ito_templates/ARC Treppen.ito"
