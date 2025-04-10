@@ -93,7 +93,7 @@ def app_advisor():
             st.markdown("### Zusätzliche Klärung durch Fragen")
             follow_ups = {
                 "Enthält Ihre Datei Subzeilen mit 'eBKP-H Sub'?": "Mehrschichtig Bereinigen",
-                "Sind Mengenspalten wie Fläche oder Volumen enthalten?": "Spalten Mengen Merger",
+                "Sind Mengenspalten des gleichen Typs wie Fläche oder Volumen enthalten?": "Spalten Mengen Merger",
                 "Enthält die Datei mehrere Arbeitsblätter mit ähnlicher Struktur?": "Master Table"
             }
             confirmed_tools = []
