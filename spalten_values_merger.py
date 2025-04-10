@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+from excel_utils import detect_header_row, apply_preset_hierarchy, clean_columns_values, rename_columns_to_standard
 
 def app(supplement_name, delete_enabled, custom_chars):
     st.header("Spalten Mengen Merger")
@@ -9,7 +10,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     Laden Sie eine Excel-Datei hoch, wählen Sie ein Arbeitsblatt und definieren Sie eine Hierarchie für die Mengenspalten.
     Nach dem Merge werden die benutzten Spalten entfernt.
     """)
-    
+
     # Session-State initialisieren
     if "df_values" not in st.session_state:
         st.session_state["df_values"] = None
@@ -22,79 +23,46 @@ def app(supplement_name, delete_enabled, custom_chars):
     if "uploaded_file_values" not in st.session_state:
         st.session_state["uploaded_file_values"] = None
 
-    
-    # Datei-Upload
     uploaded_file = st.file_uploader("Excel-Datei hochladen", type=["xlsx", "xls"], key="values_file_uploader")
     if uploaded_file:
         st.session_state["uploaded_file_values"] = uploaded_file
         try:
             excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
             sheet_names = excel_file.sheet_names
-            
-            # Arbeitsblatt-Auswahl
             selected_sheet = st.selectbox("Arbeitsblatt wählen", sheet_names, key="values_sheet_select")
             st.session_state["selected_sheet_values"] = selected_sheet
-            
-            # Vorschau
+
             preview_df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, nrows=5, engine="openpyxl")
             st.subheader("Vorschau (5 Zeilen)")
             st.dataframe(preview_df)
-            
-            # Header-Erkennung anhand "Teilprojekt"
+
             df_raw = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=None, engine="openpyxl")
-            header_row = None
-            for idx, row in df_raw.iterrows():
-                if row.astype(str).str.contains("Teilprojekt", case=False, na=False).any():
-                    header_row = idx
-                    break
-            if header_row is None:
-                st.info("Kein Header mit 'Teilprojekt' gefunden. Erste Zeile wird als Header genutzt.")
-                header_row = 0
+            header_row = detect_header_row(df_raw)
             df = pd.read_excel(uploaded_file, sheet_name=selected_sheet, header=header_row, engine="openpyxl")
             st.markdown(f"**Erkannter Header:** Zeile {header_row+1}")
             st.dataframe(df.head(5))
+
             st.session_state["df_values"] = df
             st.session_state["all_columns_values"] = list(df.columns)
+            st.session_state["hierarchies_values"] = apply_preset_hierarchy(df, st.session_state["hierarchies_values"])
 
-
-            # 🔁 Preset definieren (optional auch am Anfang des Scripts auslagern)
-            PRESET_HIERARCHY = {
-                "Flaeche": ["Fläche", "Fläche BQ", "Flaeche", "Fläche Total", "Fläche Solibri"],
-                "Volumen": ["Volumen", "Volumen BQ", "Volumen Total", "Volumen Solibri"],
-                "Laenge": ["Länge", "Länge BQ", "Laenge", "Länge Solibri"],
-                "Dicke": ["Dicke", "Dicke BQ", "Stärke", "Dicke Solibri"],
-                "Hoehe": ["Höhe", "Höhe BQ", "Hoehe", "Höhe Solibri"]
-            }
-            
-            # 🔁 Hierarchiewerte automatisch setzen, wenn leer
-            if all(not val for val in st.session_state["hierarchies_values"].values()):
-                for measure, possible_cols in PRESET_HIERARCHY.items():
-                    matched_cols = [col for col in possible_cols if col in df.columns]
-                    # Behalte Reihenfolge aus Preset
-                    ordered_matches = [col for col in possible_cols if col in matched_cols]
-                    if ordered_matches:
-                        st.session_state["hierarchies_values"][measure] = ordered_matches
-
-
-            
-            # Hierarchie der Hauptmengenspalten festlegen
             dynamic_loading = st.checkbox("Dynamisches Laden der Spalten aktivieren", value=True, key="values_dynamic_loading")
             st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
             for measure in st.session_state["hierarchies_values"]:
+                used_in_other = []
                 if dynamic_loading:
-                    used_in_other = []
                     for m, sel in st.session_state["hierarchies_values"].items():
                         if m != measure:
                             used_in_other.extend(sel)
                     available_options = [col for col in st.session_state["all_columns_values"] if col not in used_in_other]
                 else:
                     available_options = st.session_state["all_columns_values"]
-                current_selection = st.multiselect(f"Spalten für {measure}", 
+                current_selection = st.multiselect(f"Spalten für {measure}",
                                                    options=available_options,
                                                    default=st.session_state["hierarchies_values"][measure],
                                                    key=f"values_{measure}_multiselect")
                 st.session_state["hierarchies_values"][measure] = current_selection
-                
+
             if st.button("Merge und Download", key="values_merge_button"):
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -114,29 +82,19 @@ def app(supplement_name, delete_enabled, custom_chars):
                                         "Volumen": "Volumen (m3)"
                                     }.get(measure, measure)
                                     sheet_df[new_name] = new_col
-                            used_columns = []
-                            for hierarchy in st.session_state["hierarchies_values"].values():
-                                used_columns.extend(hierarchy)
-                            used_columns = list(set(used_columns))
+                            used_columns = set(col for lst in st.session_state["hierarchies_values"].values() for col in lst)
                             sheet_df.drop(columns=[col for col in used_columns if col in sheet_df.columns], inplace=True)
-                
-                        # 🔻 Zeichenbereinigung vor dem Schreiben
-                        if delete_enabled:
-                            delete_chars = [" m2", " m3", " m", " kg"]
-                            if custom_chars:
-                                delete_chars += [c.strip() for c in custom_chars.split(",") if c.strip()]
-                            for col in sheet_df.columns:
-                                if sheet_df[col].dtype == object:
-                                    for char in delete_chars:
-                                        sheet_df[col] = sheet_df[col].str.replace(char, "", regex=False)
-                
-                        # 🔻 Schreiben in Excel-Datei
+
+                            sheet_df = rename_columns_to_standard(sheet_df)
+                            sheet_df = clean_columns_values(sheet_df, delete_enabled, custom_chars)
+
                         sheet_df.to_excel(writer, sheet_name=sheet, index=False)
 
-
                 output.seek(0)
-                st.download_button("Download Excel", data=output, file_name = f"{supplement_name.strip() or 'default'}_merged_excel.xlsx",
+                st.download_button("Download Excel", data=output,
+                                   file_name=f"{supplement_name.strip() or 'default'}_merged_excel.xlsx",
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
                 st.subheader("Merge-Vorschau")
                 output.seek(0)
                 merged_excel = pd.ExcelFile(output, engine="openpyxl")
