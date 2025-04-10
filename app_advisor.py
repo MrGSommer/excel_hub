@@ -57,10 +57,15 @@ def detect_tool_suggestion(df: pd.DataFrame, sheetnames: list, confirmed_answers
         tool_scores["Merge to Table"] += 1
         reason_list.append("Keine komplexe Struktur erkannt.")
 
-    # Zusatzgewichtung aus Checkbox-Antworten
-    for answer in confirmed_answers:
-        if answer in tool_scores:
-            tool_scores[answer] += 1
+    question_weights = {
+        "Mehrschichtig Bereinigen": ["Mehrschichtig Bereinigen"],
+        "Spalten Mengen Merger": ["Spalten Mengen Merger"],
+        "Master Table": ["Master Table"]
+    }
+
+    for tool, keywords in question_weights.items():
+        if any(answer in keywords for answer in confirmed_answers):
+            tool_scores[tool] += 2  # Mehr Einfluss durch Antwortkombinationen
 
     best_tool = max(tool_scores, key=tool_scores.get)
     max_score = tool_scores[best_tool]
