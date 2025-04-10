@@ -10,7 +10,7 @@ from ito_download import app as download_templates
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
-st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen.")
+st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen oder den Download von Solibri ITOs.")
 
 # Globale Einstellungen
 st.sidebar.header("Globale Einstellungen für Advanced Excel Merger")
