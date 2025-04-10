@@ -3,7 +3,7 @@ import pandas as pd
 import io
 import re
 
-def clean_dataframe(df):
+def clean_dataframe(df, delete_enabled=False, custom_chars=""):
     master_cols = ["Teilprojekt", "Geschoss", "Unter Terrain"]
     
     # Schritt 1: Mehrschichtigkeits-Flag setzen
@@ -113,14 +113,27 @@ def clean_dataframe(df):
         return df.drop(index=indices_to_drop).reset_index(drop=True)
     df = remove_exact_duplicates(df)
     
-    # Schritt 8: Textersetzung in "Flaeche", "Volumen" und "Laenge"
+    # Schritt 8: Textersetzung in "Flaeche", "Volumen" und "Laenge" (immer aktiv)
     pattern = r'\s*m2|\s*m3|\s*m'
     for col in ["Flaeche", "Volumen", "Laenge"]:
         if col in df.columns:
-            df[col] = df[col].astype(str).str.replace(pattern, "", regex=True)
+            df[col] = df[col].astype(str).str.replace(pattern, "", regex=True).str.replace(",", ".")
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    # Optional: Weitere Zeichen entfernen (z. B. "kg")
+    if delete_enabled:
+        delete_chars = [" kg"]
+        if custom_chars:
+            delete_chars += [c.strip() for c in custom_chars.split(",") if c.strip()]
+        for col in df.columns:
+            if df[col].dtype == object:
+                for char in delete_chars:
+                    df[col] = df[col].str.replace(char, "", regex=False)
+
     return df
 
-def app():
+
+def app(supplement_name, delete_enabled, custom_chars):
     st.header("Mehrschichtig Bereinigen")
     st.markdown("""
     **Einleitung:**  
@@ -148,7 +161,8 @@ def app():
         st.dataframe(df.head(10))
         
         with st.spinner("Daten werden bereinigt ..."):
-            df_clean = clean_dataframe(df)
+            df_clean = clean_dataframe(df, delete_enabled=delete_enabled, custom_chars=custom_chars)
+
         
         st.subheader("Bereinigte Daten (10 Zeilen)")
         st.dataframe(df_clean.head(10))
@@ -157,6 +171,8 @@ def app():
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
             df_clean.to_excel(writer, index=False)
         output.seek(0)
+        file_name = f"{supplement_name.strip() or 'default'}_bereinigt.xlsx"
         st.download_button("Bereinigte Datei herunterladen", data=output,
-                           file_name="bereinigte_datei.xlsx",
+                           file_name=file_name,
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
