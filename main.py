@@ -5,6 +5,7 @@ from mehrschichtig_bereinigen import app as mehrsch_bereinigen
 from advanced_excel_merge_master import app as advanced_merge_master
 from advanced_excel_merge_table import app as advanced_merge_table
 from advanced_excel_merge_sheets import app as advanced_merge_sheets
+from tool_advisor import app as tool_advisor
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
@@ -35,6 +36,7 @@ delete_enabled = st.sidebar.checkbox("Zeichen in Zellen entfernen", key="global_
 custom_chars = st.sidebar.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="global_custom")
 
 tabs = st.tabs([
+    "Tool-Beratung",
     "Excel-Anforderungen",
     "Spalten Mengen Merger", 
     "Mehrschichtig Bereinigen", 
@@ -44,21 +46,24 @@ tabs = st.tabs([
 ])
 
 with tabs[0]:
-    excel_requirements()
+    tool_advisor()
     
 with tabs[1]:
-    values_merger(supplement_name, delete_enabled, custom_chars)
+    excel_requirements()
 
 with tabs[2]:
-    mehrsch_bereinigen(supplement_name, delete_enabled, custom_chars)
+    values_merger(supplement_name, delete_enabled, custom_chars)
 
 with tabs[3]:
-    advanced_merge_master(supplement_name, delete_enabled, custom_chars)
+    mehrsch_bereinigen(supplement_name, delete_enabled, custom_chars)
 
 with tabs[4]:
-    advanced_merge_table(supplement_name, delete_enabled, custom_chars)
+    advanced_merge_master(supplement_name, delete_enabled, custom_chars)
 
 with tabs[5]:
+    advanced_merge_table(supplement_name, delete_enabled, custom_chars)
+
+with tabs[6]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
 
 
