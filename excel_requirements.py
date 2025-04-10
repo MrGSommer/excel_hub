@@ -7,26 +7,39 @@ def app():
     with st.expander("1. Spalten Mengen Merger"):
         st.subheader("Ziel")
         st.markdown("Zusammenführen ausgewählter Mengenspalten (z.B. Dicke, Flaeche, Volumen, Laenge, Hoehe) zu einem kombinierten Wert.")
+    
         st.subheader("Erforderliche Struktur")
         st.markdown(
             """
             - **Header-Erkennung:**  
               Der Header muss den Zellwert **Teilprojekt** enthalten.
-            - **Mengenspalten:**  
-              - **Dicke:** numerisch (Einheit: m)  
-              - **Flaeche:** numerisch (Einheit: m²)  
-              - **Volumen:** numerisch (Einheit: m³)  
-              - **Laenge:** numerisch (Einheit: m)  
-              - **Hoehe:** numerisch (Einheit: m)
+            
+            - **Automatische Erkennung von Mengenspalten (Preset):**  
+              Das Tool erkennt automatisch passende Spaltennamen für jede Mengenkategorie – in folgender Priorität:
+    
+                - **Flaeche:** `Fläche`, `Fläche BQ`, `Fläche Total`, `Fläche Solibri`  
+                - **Volumen:** `Volumen`, `Volumen BQ`, `Volumen Solibri`  
+                - **Laenge:** `Länge`, `Länge BQ`, `Länge Solibri`  
+                - **Dicke:** `Dicke`, `Dicke BQ`, `Dicke Solibri`  
+                - **Hoehe:** `Höhe`, `Höhe BQ`, `Höhe Solibri`  
+    
+              Es werden alle im Excel vorhandenen Spalten aus der obigen Liste automatisch vorausgewählt. Die Reihenfolge entspricht der Priorität.
+    
+            - **Datenformat:**  
+              - Alle Mengenspalten sollten numerisch sein (Einheit: m, m², m³)  
+              - Einheiten wie " m2", " m3", " m" werden automatisch entfernt und die Werte in Dezimalzahlen konvertiert.
+    
             - **Weitere Spalten:**  
               Zusätzliche Daten können vorhanden sein, werden aber ggf. nach dem Merge entfernt.
+    
             - **Beispiel:**
-              
+    
               | Teilprojekt | Dicke | Flaeche | Volumen | Laenge | Hoehe | Anderes |
               |-------------|-------|---------|---------|--------|-------|---------|
               | TP1         | 0.2   | 15.0    | 3.0     | 5.0    | 2.5   | ...     |
             """
         )
+    
 
     with st.expander("2. Mehrschichtig Bereinigen"):
         st.subheader("Ziel")
