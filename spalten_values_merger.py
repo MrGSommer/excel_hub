@@ -11,7 +11,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     Nach dem Merge werden die benutzten Spalten entfernt.
     """)
 
-    # Session‐State initialisieren
+    # Session-State initialisieren
     state = st.session_state
     if "uploaded_file_values" not in state:
         state.uploaded_file_values = None
@@ -31,7 +31,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     # Upload
     uploaded_file = st.file_uploader("Excel-Datei hochladen", type=["xlsx", "xls"], key="values_file_uploader")
     if uploaded_file:
-        # bei neuem Upload: Dateiliste und State resetten
+        # bei neuem Upload: State zurücksetzen
         if state.uploaded_file_values is not uploaded_file:
             state.uploaded_file_values = uploaded_file
             excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
@@ -45,7 +45,8 @@ def app(supplement_name, delete_enabled, custom_chars):
         selected_sheet = st.selectbox("Arbeitsblatt wählen", state.sheet_names_values, key="values_sheet_select")
         if selected_sheet and state.selected_sheet_values != selected_sheet:
             state.selected_sheet_values = selected_sheet
-            # Header erkennen + DataFrame laden
+
+            # Header erkennen
             df_raw = pd.read_excel(
                 state.uploaded_file_values,
                 sheet_name=selected_sheet,
@@ -53,6 +54,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                 engine="openpyxl"
             )
             header_row = detect_header_row(df_raw)
+            # DataFrame mit Header laden
             df = pd.read_excel(
                 state.uploaded_file_values,
                 sheet_name=selected_sheet,
@@ -60,6 +62,11 @@ def app(supplement_name, delete_enabled, custom_chars):
                 engine="openpyxl"
             )
             state.header_row_values = header_row
+
+            # **Cleaning vor der Vorschau**: Einheiten, "Nicht klassifiziert", 0-Werte
+            df = clean_columns_values(df, delete_enabled, custom_chars)
+
+            # State aktualisieren
             state.df_values = df
             state.all_columns_values = list(df.columns)
             state.hierarchies_values = apply_preset_hierarchy(df, state.hierarchies_values)
@@ -70,10 +77,9 @@ def app(supplement_name, delete_enabled, custom_chars):
             st.markdown(f"**Erkannter Header:** Zeile {state.header_row_values+1}")
             st.dataframe(state.df_values.head(5))
 
-            # Hierarchie‐Auswahl (immer dynamisch)
+            # Hierarchie-Auswahl (dynamisch)
             st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
             for measure in state.hierarchies_values:
-                # Spalten, die in anderen Measures bereits benutzt werden
                 used = [c for m, cols in state.hierarchies_values.items() if m != measure for c in cols]
                 options = [col for col in state.all_columns_values if col not in used]
                 default = [c for c in state.hierarchies_values[measure] if c in options]
@@ -89,18 +95,18 @@ def app(supplement_name, delete_enabled, custom_chars):
             if st.button("Merge und Download", key="values_merge_button"):
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    for sheet in state.sheet_names_values:
+                    sheet_names = state.sheet_names_values
+                    for sheet in sheet_names:
                         df_sheet = pd.read_excel(
                             state.uploaded_file_values,
                             sheet_name=sheet,
                             header=state.header_row_values if sheet == state.selected_sheet_values else 0,
                             engine="openpyxl"
                         )
+                        # Nur im gewählten Sheet mergen
                         if sheet == state.selected_sheet_values:
-                            # Mergen
                             for measure, hierarchy in state.hierarchies_values.items():
                                 if hierarchy:
-                                    # erstbeste Spalte übernehmen, dann combine_first
                                     new_col = df_sheet[hierarchy[0]]
                                     for col in hierarchy[1:]:
                                         new_col = new_col.combine_first(df_sheet[col])
@@ -112,10 +118,8 @@ def app(supplement_name, delete_enabled, custom_chars):
                                         "Volumen": "Volumen (m3)"
                                     }[measure]
                                     df_sheet[new_name] = new_col
-                            # benutzte Spalten entfernen
                             used_cols = {c for cols in state.hierarchies_values.values() for c in cols}
                             df_sheet.drop(columns=[c for c in used_cols if c in df_sheet.columns], inplace=True)
-                            # Standardisieren & bereinigen
                             df_sheet = rename_columns_to_standard(df_sheet)
                             df_sheet = clean_columns_values(df_sheet, delete_enabled, custom_chars)
 
