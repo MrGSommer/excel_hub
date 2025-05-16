@@ -1,7 +1,13 @@
 import streamlit as st
 import pandas as pd
 import io
-from excel_utils import detect_header_row, apply_preset_hierarchy, clean_columns_values, rename_columns_to_standard
+from excel_utils import (
+    detect_header_row,
+    apply_preset_hierarchy,
+    prepend_values_cleaning,
+    rename_columns_to_standard
+)
+
 
 def app(supplement_name, delete_enabled, custom_chars):
     st.header("Spalten Mengen Merger")
@@ -29,24 +35,28 @@ def app(supplement_name, delete_enabled, custom_chars):
         state.hierarchies_values = {"Dicke": [], "Flaeche": [], "Volumen": [], "Laenge": [], "Hoehe": []}
 
     # Upload
-    uploaded_file = st.file_uploader("Excel-Datei hochladen", type=["xlsx", "xls"], key="values_file_uploader")
+    uploaded_file = st.file_uploader(
+        "Excel-Datei hochladen", type=["xlsx", "xls"], key="values_file_uploader"
+    )
     if uploaded_file:
-        # bei neuem Upload: State zurücksetzen
+        # Reset bei neuem Upload
         if state.uploaded_file_values is not uploaded_file:
             state.uploaded_file_values = uploaded_file
-            excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
-            state.sheet_names_values = excel_file.sheet_names
+            xls = pd.ExcelFile(uploaded_file, engine="openpyxl")
+            state.sheet_names_values = xls.sheet_names
             state.selected_sheet_values = None
             state.df_values = None
             state.all_columns_values = []
             state.hierarchies_values = {"Dicke": [], "Flaeche": [], "Volumen": [], "Laenge": [], "Hoehe": []}
 
-        # Arbeitsblatt wählen
-        selected_sheet = st.selectbox("Arbeitsblatt wählen", state.sheet_names_values, key="values_sheet_select")
+        # Sheet wählen
+        selected_sheet = st.selectbox(
+            "Arbeitsblatt wählen", state.sheet_names_values, key="values_sheet_select"
+        )
         if selected_sheet and state.selected_sheet_values != selected_sheet:
             state.selected_sheet_values = selected_sheet
 
-            # Header erkennen
+            # Einlesen + Header-Erkennung
             df_raw = pd.read_excel(
                 state.uploaded_file_values,
                 sheet_name=selected_sheet,
@@ -54,7 +64,6 @@ def app(supplement_name, delete_enabled, custom_chars):
                 engine="openpyxl"
             )
             header_row = detect_header_row(df_raw)
-            # DataFrame mit Header laden
             df = pd.read_excel(
                 state.uploaded_file_values,
                 sheet_name=selected_sheet,
@@ -63,79 +72,78 @@ def app(supplement_name, delete_enabled, custom_chars):
             )
             state.header_row_values = header_row
 
-            # **Cleaning vor der Vorschau**: Einheiten, "Nicht klassifiziert", 0-Werte
-            df = clean_columns_values(df, delete_enabled, custom_chars)
+            # Vor-Cleaning: Umbenennen + Bereinigen
+            df = prepend_values_cleaning(df, delete_enabled, custom_chars)
 
             # State aktualisieren
             state.df_values = df
             state.all_columns_values = list(df.columns)
             state.hierarchies_values = apply_preset_hierarchy(df, state.hierarchies_values)
 
-        # Vorschau anzeigen
+        # Vorschau
         if state.df_values is not None:
             st.subheader("Vorschau (5 Zeilen)")
             st.markdown(f"**Erkannter Header:** Zeile {state.header_row_values+1}")
             st.dataframe(state.df_values.head(5))
 
-            # Hierarchie-Auswahl (dynamisch)
+            # Hierarchie-Auswahl
             st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
             for measure in state.hierarchies_values:
                 used = [c for m, cols in state.hierarchies_values.items() if m != measure for c in cols]
-                options = [col for col in state.all_columns_values if col not in used]
+                options = [c for c in state.all_columns_values if c not in used]
                 default = [c for c in state.hierarchies_values[measure] if c in options]
-                selection = st.multiselect(
+                sel = st.multiselect(
                     f"Spalten für {measure}",
                     options=options,
                     default=default,
                     key=f"values_{measure}_multiselect"
                 )
-                state.hierarchies_values[measure] = selection
+                state.hierarchies_values[measure] = sel
 
-            # Merge und Download
+            # Merge & Download
             if st.button("Merge und Download", key="values_merge_button"):
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine="openpyxl") as writer:
-                    sheet_names = state.sheet_names_values
-                    for sheet in sheet_names:
+                out = io.BytesIO()
+                with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                    for sheet in state.sheet_names_values:
                         df_sheet = pd.read_excel(
                             state.uploaded_file_values,
                             sheet_name=sheet,
-                            header=state.header_row_values if sheet == state.selected_sheet_values else 0,
+                            header=state.header_row_values if sheet==state.selected_sheet_values else 0,
                             engine="openpyxl"
                         )
-                        # Nur im gewählten Sheet mergen
                         if sheet == state.selected_sheet_values:
+                            # Vor-Cleaning auf jedes Sheet
+                            df_sheet = prepend_values_cleaning(df_sheet, delete_enabled, custom_chars)
+                            # Mergen
                             for measure, hierarchy in state.hierarchies_values.items():
                                 if hierarchy:
-                                    new_col = df_sheet[hierarchy[0]]
-                                    for col in hierarchy[1:]:
-                                        new_col = new_col.combine_first(df_sheet[col])
+                                    col0 = df_sheet[hierarchy[0]]
+                                    for c in hierarchy[1:]:
+                                        col0 = col0.combine_first(df_sheet[c])
                                     new_name = {
-                                        "Flaeche": "Fläche (m2)",
-                                        "Laenge": "Länge (m)",
-                                        "Dicke": "Dicke (m)",
-                                        "Hoehe": "Höhe (m)",
-                                        "Volumen": "Volumen (m3)"
+                                        "Flaeche":"Fläche (m2)",
+                                        "Laenge":"Länge (m)",
+                                        "Dicke":"Dicke (m)",
+                                        "Hoehe":"Höhe (m)",
+                                        "Volumen":"Volumen (m3)"
                                     }[measure]
-                                    df_sheet[new_name] = new_col
+                                    df_sheet[new_name] = col0
                             used_cols = {c for cols in state.hierarchies_values.values() for c in cols}
                             df_sheet.drop(columns=[c for c in used_cols if c in df_sheet.columns], inplace=True)
-                            df_sheet = rename_columns_to_standard(df_sheet)
-                            df_sheet = clean_columns_values(df_sheet, delete_enabled, custom_chars)
 
                         df_sheet.to_excel(writer, sheet_name=sheet, index=False)
 
-                output.seek(0)
+                out.seek(0)
                 st.download_button(
                     "Download Excel",
-                    data=output,
+                    data=out,
                     file_name=f"{supplement_name.strip() or 'default'}_merged_excel.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
                 st.subheader("Merge-Vorschau")
-                merged_excel = pd.ExcelFile(output, engine="openpyxl")
-                for sheet in merged_excel.sheet_names:
-                    df_preview = pd.read_excel(merged_excel, sheet_name=sheet, nrows=5, engine="openpyxl")
-                    st.markdown(f"**Sheet: {sheet}**")
-                    st.dataframe(df_preview)
+                merged_xl = pd.ExcelFile(out, engine="openpyxl")
+                for sh in merged_xl.sheet_names:
+                    df_prev = pd.read_excel(merged_xl, sheet_name=sh, nrows=5, engine="openpyxl")
+                    st.markdown(f"**Sheet: {sh}**")
+                    st.dataframe(df_prev)
