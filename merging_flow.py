@@ -2,12 +2,14 @@ import streamlit as st
 import pandas as pd
 import io
 import openpyxl
-from collections import Counter
 from excel_utils import detect_header_row, clean_columns_values, rename_columns_to_standard
 
 
-def app_flow(supplement_name, delete_enabled, custom_chars):
-    st.header("Flow: Mengen Spalten Merger & Master Table")
+def app(supplement_name, delete_enabled, custom_chars):
+    """
+    Flow: Mengenspalten- Merger aus mehreren Dateien und Zusammenführung in Master-Tabelle
+    """
+    st.header("Flow: Mengen-Spalten Merger & Master Table")
     st.markdown(
         """
         1. Mehrere Excel-Dateien hochladen
@@ -18,13 +20,14 @@ def app_flow(supplement_name, delete_enabled, custom_chars):
         """
     )
 
+    # Schritt 1: Dateien hochladen
     uploaded_files = st.file_uploader(
         "Excel-Dateien hochladen", type=["xlsx", "xls"], accept_multiple_files=True, key="flow_files"
     )
     if not uploaded_files:
         return
 
-    # Alle Spalten sammeln
+    # Schritt 2: Alle Spalten sammeln
     all_columns = []
     file_sheets = {}
     for f in uploaded_files:
@@ -35,9 +38,10 @@ def app_flow(supplement_name, delete_enabled, custom_chars):
         df = pd.read_excel(f, sheet_name=sheet, header=header_row, engine="openpyxl")
         file_sheets[f.name] = (f, sheet)
         all_columns.extend(df.columns.tolist())
+    # Duplikate entfernen, Reihenfolge behalten
     all_columns = list(dict.fromkeys(all_columns))
 
-    # Hierarchie-Auswahl
+    # Schritt 3: Hierarchie-Auswahl
     measures = ["Flaeche", "Laenge", "Dicke", "Hoehe", "Volumen"]
     hierarchies = {}
     st.markdown("### Hierarchie der Mengenspalten festlegen")
@@ -47,6 +51,7 @@ def app_flow(supplement_name, delete_enabled, custom_chars):
         )
         hierarchies[m] = hier
 
+    # Schritt 4 und 5: Merge und Master-Tabelle
     if st.button("Flow Merge & Download", key="flow_merge_button"):
         merged_data = []
         for name, (f, sheet) in file_sheets.items():
@@ -55,33 +60,34 @@ def app_flow(supplement_name, delete_enabled, custom_chars):
             headers = [c.value for c in ws[1]]
             for row in ws.iter_rows(min_row=2, values_only=True):
                 row_dict = dict(zip(headers, row))
-                # Bereinigung: Einheiten & Nullen
+                # Einheiten entfernen & Nullen zu None
                 for k, v in row_dict.items():
-                    row_dict[k] = clean_value(v, delete_enabled, custom_chars)
-                # Spalten mergen
+                    row_dict[k] = _clean_value(v, delete_enabled, custom_chars)
+                # Spalten mergen nach Hierarchie
                 for m, cols in hierarchies.items():
                     if not cols:
                         continue
-                    val = None
-                    for c in cols:
-                        v = row_dict.get(c)
-                        if v not in (None, "", 0):
-                            val = v
+                    merged_val = None
+                    for col in cols:
+                        val = row_dict.get(col)
+                        if val not in (None, "", 0, 0.0):
+                            merged_val = val
                             break
-                    new_name = {
+                    new_col_name = {
                         "Flaeche": "Fläche (m2)",
                         "Laenge": "Länge (m)",
                         "Dicke": "Dicke (m)",
-                        "Hoehe": "Hoehe (m)",
+                        "Hoehe": "Höhe (m)",
                         "Volumen": "Volumen (m3)"
                     }[m]
-                    row_dict[new_name] = val
-                # Ursprungs-Spalten entfernen
-                used = [c for cols in hierarchies.values() for c in cols]
-                for u in used:
-                    row_dict.pop(u, None)
+                    row_dict[new_col_name] = merged_val
+                # Ursprüngliche Spalten entfernen
+                used_cols = [c for cols in hierarchies.values() for c in cols]
+                for uc in used_cols:
+                    row_dict.pop(uc, None)
                 merged_data.append(row_dict)
 
+        # Master DataFrame
         df_master = pd.DataFrame(merged_data)
         df_master = rename_columns_to_standard(df_master)
         df_master = clean_columns_values(df_master, delete_enabled, custom_chars)
@@ -99,15 +105,16 @@ def app_flow(supplement_name, delete_enabled, custom_chars):
         )
 
 
-def clean_value(value, delete_enabled, custom_chars):
+def _clean_value(value, delete_enabled, custom_chars):
+    """
+    Entfernt Einheiten und wandelt 0-Werte in None um.
+    """
     if isinstance(value, str):
-        # Zeichen entfernen
         unwanted = [" m2", " m3", " m", "Nicht klassifiziert", "---"]
         if delete_enabled and custom_chars.strip():
-            unwanted.extend([x.strip() for x in custom_chars.split(',') if x.strip()])
+            unwanted += [x.strip() for x in custom_chars.split(',') if x.strip()]
         for u in unwanted:
             value = value.replace(u, "")
-    # Nullwerte als None
     try:
         num = float(value)
         if num == 0.0:
