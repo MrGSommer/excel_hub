@@ -10,6 +10,18 @@ from excel_utils import (
 
 
 def app(supplement_name, delete_enabled, custom_chars):
+    # Sidebar: Dynamischer Namenszusatz
+    state = st.session_state
+    default_supp = supplement_name
+    if state.get("selected_sheet_values"):
+        default_supp = state.selected_sheet_values
+    elif state.get("uploaded_file_values"):
+        name = state.uploaded_file_values.name
+        default_supp = name.rsplit(".", 1)[0]
+    supplement = st.sidebar.text_input(
+        "Datei Supplement Name", value=default_supp, key="supplement_input"
+    )
+
     st.header("Spalten Mengen Merger")
     st.markdown("""
     **Einleitung:**  
@@ -18,7 +30,6 @@ def app(supplement_name, delete_enabled, custom_chars):
     """)
 
     # Session-State initialisieren
-    state = st.session_state
     if "uploaded_file_values" not in state:
         state.uploaded_file_values = None
     if "sheet_names_values" not in state:
@@ -39,7 +50,6 @@ def app(supplement_name, delete_enabled, custom_chars):
         "Excel-Datei hochladen", type=["xlsx", "xls"], key="values_file_uploader"
     )
     if uploaded_file:
-        # Reset bei neuem Upload
         if state.uploaded_file_values is not uploaded_file:
             state.uploaded_file_values = uploaded_file
             xls = pd.ExcelFile(uploaded_file, engine="openpyxl")
@@ -75,7 +85,6 @@ def app(supplement_name, delete_enabled, custom_chars):
             # Vor-Cleaning: Umbenennen + Bereinigen
             df = prepend_values_cleaning(df, delete_enabled, custom_chars)
 
-            # State aktualisieren
             state.df_values = df
             state.all_columns_values = list(df.columns)
             state.hierarchies_values = apply_preset_hierarchy(df, state.hierarchies_values)
@@ -112,9 +121,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                             engine="openpyxl"
                         )
                         if sheet == state.selected_sheet_values:
-                            # Vor-Cleaning auf jedes Sheet
                             df_sheet = prepend_values_cleaning(df_sheet, delete_enabled, custom_chars)
-                            # Mergen
                             for measure, hierarchy in state.hierarchies_values.items():
                                 if hierarchy:
                                     col0 = df_sheet[hierarchy[0]]
@@ -137,7 +144,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                 st.download_button(
                     "Download Excel",
                     data=out,
-                    file_name=f"{supplement_name.strip() or 'default'}_merged_excel.xlsx",
+                    file_name=f"{supplement.strip()}_merged_excel.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
