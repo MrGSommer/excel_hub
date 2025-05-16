@@ -135,3 +135,14 @@ def rename_columns_to_standard(df):
             renamed[matches[0]] = standard
 
     return df.rename(columns=renamed)
+
+
+def prepend_values_cleaning(df, delete_enabled=False, custom_chars=""):
+    """
+    Hilfsfunktion: Standardisiert Spaltennamen und bereinigt Werte.
+    1. Spalten umbenennen
+    2. Werte mit clean_columns_values bereinigen
+    """
+    df = rename_columns_to_standard(df)
+    df = clean_columns_values(df, delete_enabled, custom_chars)
+    return df
