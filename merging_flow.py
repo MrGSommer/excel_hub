@@ -10,7 +10,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     Flow: Mengenspalten-Merger aus mehreren Dateien oder einer Datei mit mehreren Tabs
     Performance-Optimierung: Phasenweise Laden
     """
-    st.header("Flow: Mengen-Spalten Merger & Master Table")
+    st.header("Flow: Mengen-Spalten Merger & Master Table | BETA VERSION")
 
     # Initialisierung Session-State
     if "flow_file_sheets" not in st.session_state:
