@@ -5,6 +5,7 @@ from mehrschichtig_bereinigen import app as mehrsch_bereinigen
 from advanced_excel_merge_master import app as advanced_merge_master
 from advanced_excel_merge_table import app as advanced_merge_table
 from advanced_excel_merge_sheets import app as advanced_merge_sheets
+from merging_flow import app as merging_flow_columns_to_table
 from app_advisor import app_advisor
 from ito_download import app as download_templates
 
@@ -42,6 +43,7 @@ tabs = st.tabs([
     "Master Table", 
     "Merge to Table", 
     "Merge to Sheets",
+    "Flow Merging",
     "Download Templates"
 ])
 
@@ -67,4 +69,7 @@ with tabs[6]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
 
 with tabs[7]:
+    merging_flow_columns_to_table(supplement_name, delete_enabled, custom_chars)
+
+with tabs[8]:
     download_templates()
