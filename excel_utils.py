@@ -22,7 +22,7 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
     df = df.replace("Nicht klassifiziert", pd.NA)
 
     # 2) Mengenspalten bereinigen
-    pattern = r'\s*m2|\s*m3|\s*m'
+    pattern = r'\s*m2|\s*m3|\s*m|\s*mm'
     mengenspalten = list(COLUMN_PRESET.keys())
     nicht_numerisch = []
 
