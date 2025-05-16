@@ -52,7 +52,7 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
                 for char in delete_chars:
                     df[col] = df[col].str.replace(char, "", regex=False)
                 # auch hier 0-Strings zu None
-                df[col] = df[col].replace({"0": pd.NA, "0.0": pd.NA, "0.00": pd.NA})
+                df[col] = df[col].replace({"0": pd.NA, "0.0": pd.NA, "0.00": pd.NA, "0 mm": pd.NA})
 
     # 5) Warnung bei komplett leeren Mengenspalten
     if nicht_numerisch:
