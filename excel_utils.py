@@ -13,8 +13,8 @@ COLUMN_PRESET = {
 def clean_columns_values(df, delete_enabled=False, custom_chars=""):
     """
     1. Ersetzt 'Nicht klassifiziert' durch None
-    2. Entfernt Mengeneinheiten und konvertiert in float
-    3. Wandelt alle 0-Werte in None um
+    2. Entfernt Mengeneinheiten (inkl. mm) und konvertiert in float
+    3. Wandelt alle 0-Werte (ganzer Zelleninhalt) in None um
     4. Entfernt optionale Zeichen (z.B. ' kg')
     5. Gibt Warnungen aus, falls Spalten komplett unbestückt sind
     """
@@ -22,7 +22,8 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
     df = df.replace("Nicht klassifiziert", pd.NA)
 
     # 2) Mengenspalten bereinigen
-    pattern = r'\s*m2|\s*m3|\s*m|\s*mm'
+    # Reihenfolge: mm zuerst, dann m3, m2, m
+    pattern = r"\s*mm|\s*m3|\s*m2|\s*m"
     mengenspalten = list(COLUMN_PRESET.keys())
     nicht_numerisch = []
 
@@ -37,7 +38,7 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
             )
             # in numeric wandeln
             df[col] = pd.to_numeric(df[col], errors="coerce")
-            # 3) Null-Werte: alle 0.0 => None
+            # 3) Ganze 0-Werte -> None
             df[col] = df[col].mask(df[col] == 0, pd.NA)
             if df[col].isna().all():
                 nicht_numerisch.append(col)
@@ -49,10 +50,14 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
             delete_chars += [c.strip() for c in custom_chars.split(",") if c.strip()]
         for col in df.columns:
             if df[col].dtype == object:
+                # Zeichen entfernen
                 for char in delete_chars:
                     df[col] = df[col].str.replace(char, "", regex=False)
-                # auch hier 0-Strings zu None
-                df[col] = df[col].replace({"0": pd.NA, "0.0": pd.NA, "0.00": pd.NA, "0 mm": pd.NA})
+                # Ganze Null-Strings zu None
+                df[col] = df[col].mask(
+                    df[col].str.strip().isin(["0", "0.0", "0.00", "0 mm"]),
+                    pd.NA
+                )
 
     # 5) Warnung bei komplett leeren Mengenspalten
     if nicht_numerisch:
@@ -63,6 +68,7 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
 
     return df
 
+
 def detect_header_row(df_raw, suchbegriff="Teilprojekt"):
     """
     Gibt den Index der ersten Zeile zurück, die den Suchbegriff enthält.
@@ -72,6 +78,7 @@ def detect_header_row(df_raw, suchbegriff="Teilprojekt"):
         if row.astype(str).str.contains(suchbegriff, case=False, na=False).any():
             return idx
     return 0
+
 
 def apply_preset_hierarchy(df, existing_hierarchy, preset=None):
     if preset is None:
@@ -87,7 +94,7 @@ def apply_preset_hierarchy(df, existing_hierarchy, preset=None):
     for measure, defaults in existing_hierarchy.items():
         existing_hierarchy[measure] = [c for c in defaults if c in df.columns]
 
-    # Nur wenn danach noch keine Hierarchie gesetzt:
+    # Nur wenn komplett leer: Preset anwenden
     if all(not vals for vals in existing_hierarchy.values()):
         for measure, keywords in preset.items():
             detected = []
@@ -111,6 +118,7 @@ def apply_preset_hierarchy(df, existing_hierarchy, preset=None):
 
     return existing_hierarchy
 
+
 def rename_columns_to_standard(df):
     """
     Ersetzt alternative Spaltennamen durch Standardnamen laut COLUMN_PRESET.
@@ -122,8 +130,7 @@ def rename_columns_to_standard(df):
         if matches:
             if len(matches) > 1:
                 st.warning(
-                    f"Mehrere Spalten für '{standard}' gefunden: {matches}. "
-                    f"Verwende '{matches[0]}'."
+                    f"Mehrere Spalten für '{standard}' gefunden: {matches}. Verwende '{matches[0]}'."
                 )
             renamed[matches[0]] = standard
 
