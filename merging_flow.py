@@ -2,139 +2,127 @@ import streamlit as st
 import pandas as pd
 import io
 import openpyxl
-from excel_utils import detect_header_row, clean_columns_values, rename_columns_to_standard
+from excel_utils import detect_header_row, rename_columns_to_standard
 
 
 def app(supplement_name, delete_enabled, custom_chars):
     """
     Flow: Mengenspalten-Merger aus mehreren Dateien oder einer Datei mit mehreren Tabs
+    Performance-Optimierung: Phasenweise Laden
     """
     st.header("Flow: Mengen-Spalten Merger & Master Table")
-    st.markdown(
-        """
-        1. Modus wählen: Mehrere Dateien oder eine Datei mit mehreren Tabs
-        2. Hierarchie für Mengenspalten festlegen
-        3. Werte bereinigen (Einheiten & Nullen)
-        4. Spalten mergen
-        5. Alle Zeilen zu einer Master-Tabelle zusammenführen
-        """
-    )
+
+    # Initialisierung Session-State
+    if "flow_file_sheets" not in st.session_state:
+        st.session_state.flow_file_sheets = {}
+    if "flow_all_columns" not in st.session_state:
+        st.session_state.flow_all_columns = []
+    if "flow_columns_loaded" not in st.session_state:
+        st.session_state.flow_columns_loaded = False
 
     # Schritt 1: Modus wählen
     mode = st.radio(
         "Modus wählen", ["Mehrere Dateien", "Eine Datei mit mehreren Tabs"], index=0
     )
 
-    file_sheets = {}
-    all_columns = []
-
+    # Upload und Seitenauswahl
     if mode == "Mehrere Dateien":
-        # Mehrere Dateien-Upload
-        uploaded_files = st.file_uploader(
-            "Excel-Dateien hochladen", type=["xlsx", "xls"], accept_multiple_files=True, key="flow_files_multi"
+        files = st.file_uploader(
+            "Excel-Dateien hochladen", type=["xlsx", "xls"], accept_multiple_files=True, key="flow_upload_multi"
         )
-        if uploaded_files:
-            for f in uploaded_files:
-                # Wir nutzen standardmässig das erste Sheet
+        if files:
+            st.session_state.flow_file_sheets = {}
+            for f in files:
                 wb = pd.ExcelFile(f, engine="openpyxl")
-                sheet = wb.sheet_names[0]
-                df_raw = pd.read_excel(f, sheet_name=sheet, header=None, engine="openpyxl")
-                header_row = detect_header_row(df_raw)
-                df = pd.read_excel(f, sheet_name=sheet, header=header_row, engine="openpyxl")
-                file_sheets[f.name] = (f, sheet)
-                all_columns.extend(df.columns.tolist())
-
+                # nur erstes Sheet, direkte Zuordnung
+                st.session_state.flow_file_sheets[f.name] = (f, wb.sheet_names[0])
     else:
-        # Single-File mit Multi-Sheet
-        single_file = st.file_uploader(
-            "Eine Excel-Datei hochladen", type=["xlsx", "xls"], key="flow_file_single"
+        single = st.file_uploader(
+            "Eine Excel-Datei hochladen", type=["xlsx", "xls"], key="flow_upload_single"
         )
-        if single_file:
-            wb = pd.ExcelFile(single_file, engine="openpyxl")
+        if single:
+            wb = pd.ExcelFile(single, engine="openpyxl")
             sheets = wb.sheet_names
-            selected_sheets = st.multiselect(
-                "Arbeitsblätter wählen", sheets, default=sheets, key="flow_sheets_select"
+            chosen = st.multiselect(
+                "Arbeitsblätter wählen", sheets, default=sheets, key="flow_sheet_select"
             )
-            for sheet in selected_sheets:
-                df_raw = pd.read_excel(single_file, sheet_name=sheet, header=None, engine="openpyxl")
-                header_row = detect_header_row(df_raw)
-                df = pd.read_excel(single_file, sheet_name=sheet, header=header_row, engine="openpyxl")
-                file_sheets[f"{single_file.name} - {sheet}"] = (single_file, sheet)
-                all_columns.extend(df.columns.tolist())
+            if chosen:
+                st.session_state.flow_file_sheets = {}
+                for sheet in chosen:
+                    key = f"{single.name} - {sheet}"
+                    st.session_state.flow_file_sheets[key] = (single, sheet)
 
-    if not file_sheets:
-        return
+    # Schritt 2: Schaltfläche zum Laden der Spaltennamen
+    if st.session_state.flow_file_sheets and not st.session_state.flow_columns_loaded:
+        if st.button("Spaltennamen laden", key="flow_load_columns"):
+            cols = []
+            exclude = ["Teilprojekt", "Geschoss", "Gebäude", "Baufeld", "eBKP-H", "Unter Terrain"]
+            for key, (f, sheet) in st.session_state.flow_file_sheets.items():
+                df_raw = pd.read_excel(f, sheet_name=sheet, header=None, engine="openpyxl")
+                hr = detect_header_row(df_raw)
+                df = pd.read_excel(f, sheet_name=sheet, header=hr, engine="openpyxl")
+                cols.extend(df.columns.tolist())
+            # Einzigartig und ausschliessen
+            unique = [c for c in dict.fromkeys(cols) if c not in exclude]
+            st.session_state.flow_all_columns = unique
+            st.session_state.flow_columns_loaded = True
 
-    # Einzigartige Spaltenliste
-    all_columns = list(dict.fromkeys(all_columns))
+    # Schritt 3: Hierarchie festlegen
+    if st.session_state.flow_columns_loaded:
+        measures = ["Flaeche", "Laenge", "Dicke", "Hoehe", "Volumen"]
+        st.markdown("### Hierarchie der Mengenspalten festlegen")
+        hierarchies = {}
+        for m in measures:
+            hierarchies[m] = st.multiselect(
+                f"Spalten für {m}", options=st.session_state.flow_all_columns, key=f"flow_{m}"
+            )
 
-    # Schritt 2: Hierarchie-Auswahl
-    measures = ["Flaeche", "Laenge", "Dicke", "Hoehe", "Volumen"]
-    hierarchies = {}
-    st.markdown("### Hierarchie der Mengenspalten festlegen")
-    for m in measures:
-        hierarchies[m] = st.multiselect(
-            f"Spalten für {m}", options=all_columns, key=f"flow_{m}"
-        )
+        # Schritt 4: Merge und Master-Tabelle per Button
+        if st.button("Flow Merge & Download", key="flow_run_merge"):
+            merged_data = []
+            for identifier, (f, sheet) in st.session_state.flow_file_sheets.items():
+                wb = openpyxl.load_workbook(f, data_only=True)
+                ws = wb[sheet]
+                headers = [cell.value for cell in ws[1]]
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    rd = dict(zip(headers, row))
+                    # Werte bereinigen & mergen
+                    for k, v in list(rd.items()):
+                        rd[k] = _clean_value(v, delete_enabled, custom_chars)
+                    for m, cols in hierarchies.items():
+                        if not cols:
+                            continue
+                        val = next((rd.get(c) for c in cols if rd.get(c) not in (None, "", 0, 0.0)), None)
+                        name = {
+                            "Flaeche": "Fläche (m2)",
+                            "Laenge": "Länge (m)",
+                            "Dicke": "Dicke (m)",
+                            "Hoehe": "Höhe (m)",
+                            "Volumen": "Volumen (m3)"
+                        }[m]
+                        rd[name] = val
+                    # Ursprungs-Spalten entfernen
+                    used = [c for cols in hierarchies.values() for c in cols]
+                    for u in used:
+                        rd.pop(u, None)
+                    merged_data.append(rd)
 
-    # Schritt 3–5: Merge & Master
-    if st.button("Flow Merge & Download", key="flow_merge_button"):
-        merged_data = []
-        for identifier, (f, sheet) in file_sheets.items():
-            wb = openpyxl.load_workbook(f, data_only=True)
-            ws = wb[sheet]
-            headers = [cell.value for cell in ws[1]]
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                row_dict = dict(zip(headers, row))
-                # Werte bereinigen
-                for k, v in list(row_dict.items()):
-                    row_dict[k] = _clean_value(v, delete_enabled, custom_chars)
-                # Spalten mergen nach Hierarchie
-                for m, cols in hierarchies.items():
-                    if not cols:
-                        continue
-                    merged_val = None
-                    for col in cols:
-                        val = row_dict.get(col)
-                        if val not in (None, "", 0, 0.0):
-                            merged_val = val
-                            break
-                    new_col_name = {
-                        "Flaeche": "Fläche (m2)",
-                        "Laenge": "Länge (m)",
-                        "Dicke": "Dicke (m)",
-                        "Hoehe": "Höhe (m)",
-                        "Volumen": "Volumen (m3)"
-                    }[m]
-                    row_dict[new_col_name] = merged_val
-                # Ursprüngliche Spalten entfernen
-                used_cols = [c for cols in hierarchies.values() for c in cols]
-                for uc in used_cols:
-                    row_dict.pop(uc, None)
-                merged_data.append(row_dict)
-
-        # Master DataFrame
-        df_master = pd.DataFrame(merged_data)
-        df_master = rename_columns_to_standard(df_master)
-        df_master = clean_columns_values(df_master, delete_enabled, custom_chars)
-
-        # Download-Button
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_master.to_excel(writer, index=False, sheet_name="Master")
-        output.seek(0)
-        st.download_button(
-            "Download Master Excel",
-            data=output,
-            file_name=f"{supplement_name}_flow_master.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            # Master DataFrame und Download
+            df_master = pd.DataFrame(merged_data)
+            df_master = rename_columns_to_standard(df_master)
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                df_master.to_excel(writer, index=False, sheet_name="Master")
+            out.seek(0)
+            st.download_button(
+                "Download Master Excel",
+                data=out,
+                file_name=f"{supplement_name}_flow_master.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
 
 def _clean_value(value, delete_enabled, custom_chars):
-    """
-    Entfernt Einheiten und wandelt Null-Werte in None um.
-    """
     if isinstance(value, str):
         unwanted = [" m2", " m3", " m", "Nicht klassifiziert", "---"]
         if delete_enabled and custom_chars.strip():
