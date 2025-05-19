@@ -14,32 +14,41 @@ COLUMN_PRESET = {
 def convert_size_to_m(x):
     """
     Wandelt Strings mit Einheiten (mm, cm, dm, m sowie mm2, cm2, dm2, m2, mm3, cm3, dm3, m3)
-    korrekt in Meter (bzw. m2, m3) um. Andere Werte bleiben unverändert (bzw. pd.NA).
+    korrekt in Meter (bzw. m2, m3) um.
+    Gibt bei '0 mm', '0 cm2' etc. direkt pd.NA zurück.
     """
     if pd.isna(x):
         return pd.NA
     s = str(x).strip()
     m = re.match(
         r"^([\d\.,]+)\s*(mm2|cm2|dm2|m2|mm3|cm3|dm3|m3|mm|cm|dm|m)$",
-        s, flags=re.IGNORECASE
+        s,
+        flags=re.IGNORECASE
     )
     if m:
-        num, unit = m.groups()
-        num = float(num.replace(",", "."))
+        num_str, unit = m.groups()
+        num = float(num_str.replace(",", "."))
+        # Neu: bei num == 0 direkt None
+        if num == 0:
+            return pd.NA
         unit = unit.lower()
-        if unit.endswith(("2","3")):
+        if unit.endswith(("2", "3")):
             base, exp = unit[:-1], int(unit[-1])
         else:
             base, exp = unit, 1
-        factor = {"mm":0.001, "cm":0.01, "dm":0.1, "m":1}[base] ** exp
+        factor = {"mm": 0.001, "cm": 0.01, "dm": 0.1, "m": 1}[base] ** exp
         return num * factor
+
     # Fallback: Nicht-numerische Zeichen entfernen
     cleaned = re.sub(r"[^\d\.,-]", "", s)
     try:
-        return float(cleaned.replace(",", "."))
+        val = float(cleaned.replace(",", "."))
+        # optional: gleich 0 ⇒ None
+        return pd.NA if val == 0 else val
     except:
-        st.warning(f"Ungültiges Format: '{s}'")
+        st.warning(f"Ungültiges Format in Zelle: '{s}'")
         return pd.NA
+
 
 def clean_columns_values(df: pd.DataFrame,
                          delete_enabled: bool = False,
