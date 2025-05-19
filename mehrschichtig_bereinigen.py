@@ -54,18 +54,22 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
 
             # Aufschlüsselung mehrschichtiger Elemente
             if sub_indices and match_sub_toggle and "eBKP-H Sub" in df.columns:
-                mother_val = df.at[i, "eBKP-H"]
-                for idx in sub_indices:
-                    sub_val = df.at[idx, "eBKP-H Sub"]
-                    if sub_val == mother_val:
-                        drop_indices.append(idx)
-                    else:
-                        drop_indices.append(i)
-                        new = df.loc[idx].copy()
-                        new["Mehrschichtiges Element"] = True
-                        new_rows.append(new)
-                i = j
-                continue
+            mother_val = df.at[i, "eBKP-H"]
+            for idx in sub_indices:
+                sub_val = df.at[idx, "eBKP-H Sub"]
+                if sub_val == mother_val:
+                    # nur die identische Sub-Zeile droppen
+                    drop_indices.append(idx)
+                else:
+                    # bei abweichender Sub-Zeile neue Hauptzeile mit Mutterinfos
+                    new = df.loc[idx].copy()
+                    # Mutterinfos übernehmen
+                    for col in master_cols:
+                        new[col] = df.at[i, col]
+                    new["Mehrschichtiges Element"] = False
+                    new_rows.append(new)
+            i = j
+            continue
             
             # ursprüngliches Verhalten, wenn Toggle aus oder keine Sub-Spalte
             if sub_indices:
