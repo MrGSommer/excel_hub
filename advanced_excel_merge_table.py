@@ -59,6 +59,29 @@ def app(supplement_name, delete_enabled, custom_chars):
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled, custom_chars)
 
+    # 3.1) Spalten-Reihenfolge anpassen: master_cols → measure_cols → Rest
+    master_cols = [
+        "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
+        "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
+        "Material", "Typ", "Name", "Ergänzung"
+    ]
+    measure_cols = ["Fläche (m2)", "Volumen (m3)", "Länge (m)", "Dicke (m)", "Höhe (m)"]
+
+    ordered = []
+    # zuerst alle vorhandenen master_cols
+    for col in master_cols:
+        if col in df.columns:
+            ordered.append(col)
+    # dann alle measure_cols
+    for col in measure_cols:
+        if col in df.columns:
+            ordered.append(col)
+    # dann alle übrigen Spalten
+    for col in df.columns:
+        if col not in ordered:
+            ordered.append(col)
+    df = df[ordered]
+
     # 4) GUID-Duplikate erkennen
     dup_mask = None
     if "GUID" in df.columns:
@@ -73,7 +96,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                 lambda row: [highlight_dup(flag) for flag in dup_mask],
                 axis=1
             )
-            st.write("Tabelle (Duplikate gelb markiert):")
+            st.warning("Duplikate gelb in Tabelle markiert")
         else:
             st.success("Keine GUID-Duplikate gefunden.")
             st.dataframe(df)
