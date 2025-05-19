@@ -135,7 +135,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                     df_sheet = prepend_values_cleaning(df_sheet, delete_enabled, custom_chars)
 
 
-                    # 4.0) Quell-Spalten säubern & konvertieren, bevor das Merging startet
+                    # 4.x) Quell-Spalten säubern & konvertieren, bevor das Merging startet
                     for measure, hierarchy in state.hierarchies_values.items():
                         for src in hierarchy:
                             if src in df_sheet.columns:
@@ -147,12 +147,8 @@ def app(supplement_name, delete_enabled, custom_chars):
                                             .astype(str)
                                             .str.replace(ch, "", regex=False)
                                         )
-                                # in Meter (bzw. m²/m³) umwandeln
+                                # Einheitserkennung & -konvertierung (0 mm ⇒ pd.NA)
                                 df_sheet[src] = df_sheet[src].apply(convert_size_to_m)
-                                # ganze 0-Werte ⇒ None
-                                df_sheet[src] = df_sheet[src].mask(df_sheet[src] == 0, pd.NA)
-
-
                     
                     # 4.1) Erzeugen und konvertieren der gemergten Spalten
                     for measure, hierarchy in state.hierarchies_values.items():
@@ -167,9 +163,9 @@ def app(supplement_name, delete_enabled, custom_chars):
                                 "Hoehe":   "Höhe (m)",
                                 "Volumen": "Volumen (m3)"
                             }[measure]
-                            df_sheet[new_name] = col0
-                            df_sheet[new_name] = df_sheet[new_name].apply(convert_size_to_m)
-                            df_sheet[new_name] = df_sheet[new_name].mask(df_sheet[new_name] == 0, pd.NA)
+                            # direkt mit convert_size_to_m sauber machen
+                            df_sheet[new_name] = col0.apply(convert_size_to_m)
+
 
                     # 4.2) Reorder: neue Spalten am kleinsten Index der Quellen einfügen
                     cols_before = list(df_sheet.columns)
