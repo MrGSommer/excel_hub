@@ -5,7 +5,8 @@ from excel_utils import (
     detect_header_row,
     apply_preset_hierarchy,
     prepend_values_cleaning,
-    rename_columns_to_standard
+    rename_columns_to_standard,
+    convert_size_to_m
 )
 
 
@@ -145,6 +146,9 @@ def app(supplement_name, delete_enabled, custom_chars):
                                 "Volumen": "Volumen (m3)"
                             }[measure]
                             df_sheet[new_name] = col0
+                            # Nach Merge: neue Spalte in Meter umwandeln und 0→NA
+                            df_sheet[new_name] = df_sheet[new_name].apply(convert_size_to_m)
+                            df_sheet[new_name] = df_sheet[new_name].mask(df_sheet[new_name] == 0, pd.NA)
                     used_cols = {c for cols in state.hierarchies_values.values() for c in cols}
                     df_sheet.drop(columns=[c for c in used_cols if c in df_sheet.columns], inplace=True)
 
