@@ -54,6 +54,10 @@ def clean_columns_values(df: pd.DataFrame,
     # 1)
     df = df.replace("Nicht klassifiziert", pd.NA)
 
+     # 'oi' in "Unter Terrain" ⇒ None
+    if "Unter Terrain" in df.columns:
+        df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
+
     # 2) Konvertierung nur für die Standard-Mengenspalten
     preset_cols = [col for col in COLUMN_PRESET.keys() if col in df.columns]
     empty_cols = []
