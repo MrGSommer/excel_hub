@@ -115,8 +115,9 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
         if col in df.columns:
             df.drop(columns=col, inplace=True)
 
+    # 'oi' in "Unter Terrain" ⇒ None
     if "Unter Terrain" in df.columns:
-        df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = ""
+        df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
 
     df = df[~df["eBKP-H"].isin(["Keine Zuordnung", "Nicht klassifiziert"])]
     df.reset_index(drop=True, inplace=True)
