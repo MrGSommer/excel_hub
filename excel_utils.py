@@ -55,7 +55,7 @@ def clean_columns_values(df: pd.DataFrame,
     df = df.replace("Nicht klassifiziert", pd.NA)
 
     # 1.1) Spalten mit Farbangaben löschen
-    for drop_col in ("Farbe", "Colour"):
+    for drop_col in ("Farbe", "Color"):
         if drop_col in df.columns:
             df.drop(columns=drop_col, inplace=True)
 
