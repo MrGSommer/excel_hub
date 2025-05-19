@@ -3,9 +3,10 @@ import pandas as pd
 import io
 from excel_utils import clean_columns_values, rename_columns_to_standard
 
-def clean_dataframe(df, delete_enabled=False, custom_chars=""):
-    master_cols = ["Teilprojekt", "Geschoss", "Unter Terrain"]
-
+def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=False):
+    master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain"]
+    master_cols = [col for col in master_cols if col in df.columns]
+    
     df["Mehrschichtiges Element"] = df.apply(lambda row: all(pd.isna(row[col]) for col in master_cols), axis=1)
 
     i = 0
@@ -49,16 +50,35 @@ def clean_dataframe(df, delete_enabled=False, custom_chars=""):
             while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
                 sub_indices.append(j)
                 j += 1
+
+
+            # Aufschlüsselung mehrschichtiger Elemente
+            if sub_indices and match_sub_toggle and "eBKP-H Sub" in df.columns:
+                mother_val = df.at[i, "eBKP-H"]
+                for idx in sub_indices:
+                    sub_val = df.at[idx, "eBKP-H Sub"]
+                    if sub_val == mother_val:
+                        drop_indices.append(idx)
+                    else:
+                        drop_indices.append(i)
+                        new = df.loc[idx].copy()
+                        new["Mehrschichtiges Element"] = True
+                        new_rows.append(new)
+                i = j
+                continue
+            
+            # ursprüngliches Verhalten, wenn Toggle aus oder keine Sub-Spalte
             if sub_indices:
                 valid_sub_found = any(
-                    pd.notna(df.at[idx, "eBKP-H Sub"]) and 
+                    pd.notna(df.at[idx, "eBKP-H Sub"]) and
                     df.at[idx, "eBKP-H Sub"] not in ["Nicht klassifiziert", "", "Keine Zuordnung"]
                     for idx in sub_indices
                 )
                 if valid_sub_found:
                     drop_indices.append(i)
                     for idx in sub_indices:
-                        if pd.notna(df.at[idx, "eBKP-H Sub"]) and df.at[idx, "eBKP-H Sub"] not in ["Nicht klassifiziert", "", "Keine Zuordnung"]:
+                        sub_val = df.at[idx, "eBKP-H Sub"]
+                        if pd.notna(sub_val) and sub_val not in ["Nicht klassifiziert", "", "Keine Zuordnung"]:
                             new = df.loc[idx].copy()
                             new["Mehrschichtiges Element"] = True
                             new_rows.append(new)
@@ -70,6 +90,7 @@ def clean_dataframe(df, delete_enabled=False, custom_chars=""):
             i = j
         else:
             i += 1
+            
     if drop_indices:
         df.drop(index=drop_indices, inplace=True)
         df.reset_index(drop=True, inplace=True)
@@ -136,8 +157,17 @@ def app(supplement_name, delete_enabled, custom_chars):
         st.subheader("Originale Daten (10 Zeilen)")
         st.dataframe(df.head(10))
 
+        use_match_sub = st.checkbox(
+            "Sub-eBKP-H identisch zur Mutter ignorieren (Toggle)",
+            value=False
+        )
         with st.spinner("Daten werden bereinigt ..."):
-            df_clean = clean_dataframe(df, delete_enabled=delete_enabled, custom_chars=custom_chars)
+            df_clean = clean_dataframe(
+                df,
+                delete_enabled=delete_enabled,
+                custom_chars=custom_chars,
+                match_sub_toggle=use_match_sub
+            )
 
         st.subheader("Bereinigte Daten (10 Zeilen)")
         st.dataframe(df_clean.head(10))
