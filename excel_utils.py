@@ -54,6 +54,11 @@ def clean_columns_values(df: pd.DataFrame,
     # 1)
     df = df.replace("Nicht klassifiziert", pd.NA)
 
+    # 1.1) Spalten mit Farbangaben löschen
+    for drop_col in ("Farbe", "Colour"):
+        if drop_col in df.columns:
+            df.drop(columns=drop_col, inplace=True)
+
      # 'oi' in "Unter Terrain" ⇒ None
     if "Unter Terrain" in df.columns:
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
