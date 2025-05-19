@@ -131,8 +131,29 @@ def app(supplement_name, delete_enabled, custom_chars):
                     engine="openpyxl"
                 )
                 if sheet == state.selected_sheet_values:
+                    # Grund-Bereinigung auf das Sheet
                     df_sheet = prepend_values_cleaning(df_sheet, delete_enabled, custom_chars)
 
+
+                    # 4.0) Quell-Spalten säubern & konvertieren, bevor das Merging startet
+                    for measure, hierarchy in state.hierarchies_values.items():
+                        for src in hierarchy:
+                            if src in df_sheet.columns:
+                                # optionale Custom-Chars löschen
+                                if delete_enabled and custom_chars:
+                                    for ch in custom_chars.split(","):
+                                        df_sheet[src] = (
+                                            df_sheet[src]
+                                            .astype(str)
+                                            .str.replace(ch, "", regex=False)
+                                        )
+                                # in Meter (bzw. m²/m³) umwandeln
+                                df_sheet[src] = df_sheet[src].apply(convert_size_to_m)
+                                # ganze 0-Werte ⇒ None
+                                df_sheet[src] = df_sheet[src].mask(df_sheet[src] == 0, pd.NA)
+
+
+                    
                     # 4.1) Erzeugen und konvertieren der gemergten Spalten
                     for measure, hierarchy in state.hierarchies_values.items():
                         if hierarchy:
