@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import re
 
 # Gemeinsames zentrales Preset für Hierarchiezuordnung und Standardnamen
 COLUMN_PRESET = {
@@ -9,6 +10,43 @@ COLUMN_PRESET = {
     "Dicke (m)": ["Dicke", "Dicke BQ", "Stärke", "Dicke Solibri"],
     "Höhe (m)": ["Höhe", "Hoehe", "Höhe BQ", "Höhe Solibri"]
 }
+
+
+def convert_size_to_m(x):
+    """
+    Wandelt Strings mit Einheiten (mm, cm, dm, m sowie mm2, cm2, dm2, m2, mm3, cm3, dm3, m3)
+    korrekt in Meter (bzw. m2, m3) um.
+    """
+    if pd.isna(x):
+        return pd.NA
+    s = str(x).strip()
+    m = re.match(r"^([\d\.,]+)\s*(mm2|cm2|dm2|m2|mm3|cm3|dm3|m3|mm|cm|dm|m)$", s, flags=re.IGNORECASE)
+    if m:
+        num, unit = m.groups()
+        num = float(num.replace(",", "."))
+        unit = unit.lower()
+        # Exponent ermitteln
+        if unit.endswith(("2", "3")):
+            base, exp = unit[:-1], int(unit[-1])
+        else:
+            base, exp = unit, 1
+        factor = {"mm": 0.001, "cm": 0.01, "dm": 0.1, "m": 1}[base] ** exp
+        
+        return num * factor
+
+    # Fallback: alles Nicht-Numerische entfernen
+    cleaned = re.sub(r"[^\d\.,-]", "", s)
+    try:
+        val = float(cleaned.replace(",", "."))
+    except:
+        val = pd.NA
+
+    # WARNUNG für komplett nicht erkannte Formate
+    if not m and val is pd.NA:
+        st.warning(f"Ungültiges Format in Zelle: '{s}'")
+
+    return val
+
 
 def clean_columns_values(df, delete_enabled=False, custom_chars=""):
     """
@@ -22,26 +60,16 @@ def clean_columns_values(df, delete_enabled=False, custom_chars=""):
     df = df.replace("Nicht klassifiziert", pd.NA)
 
     # 2) Mengenspalten bereinigen
-    # Reihenfolge: mm zuerst, dann m3, m2, m
-    pattern = r"\s*mm|\s*m3|\s*m2|\s*m"
     mengenspalten = list(COLUMN_PRESET.keys())
     nicht_numerisch = []
-
     for col in mengenspalten:
         if col in df.columns:
-            # Einheit entfernen, Komma->Punkt
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace(pattern, "", regex=True)
-                .str.replace(",", ".")
-            )
-            # in numeric wandeln
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = df[col].apply(convert_size_to_m)
             # 3) Ganze 0-Werte -> None
             df[col] = df[col].mask(df[col] == 0, pd.NA)
             if df[col].isna().all():
                 nicht_numerisch.append(col)
+
 
     # 4) Optionale Zeichen löschen (nur für Textspalten)
     if delete_enabled:
