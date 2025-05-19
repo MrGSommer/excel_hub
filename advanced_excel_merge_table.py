@@ -65,7 +65,7 @@ def app(supplement_name, delete_enabled, custom_chars):
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
         "Material", "Typ", "Name", "Ergänzung"
     ]
-    measure_cols = ["Fläche (m2)", "Volumen (m3)", "Länge (m)", "Dicke (m)", "Höhe (m)"]
+    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
     ordered = []
     # zuerst alle vorhandenen master_cols
@@ -88,7 +88,7 @@ def app(supplement_name, delete_enabled, custom_chars):
         dup_mask = df.duplicated(subset=["GUID"], keep=False)
         dup_count = dup_mask.sum()
         if dup_count:
-            st.warning(f"{dup_count} Zeilen mit doppelter GUID gefunden.")
+            st.warning(f"{dup_count} Zeilen mit doppelter GUID gefunden und markiert")
             # Anzeige mit Hervorhebung
             def highlight_dup(val):
                 return 'background-color: yellow' if val else ''
@@ -96,7 +96,6 @@ def app(supplement_name, delete_enabled, custom_chars):
                 lambda row: [highlight_dup(flag) for flag in dup_mask],
                 axis=1
             )
-            st.warning("Duplikate gelb in Tabelle markiert")
         else:
             st.success("Keine GUID-Duplikate gefunden.")
             st.dataframe(df)
