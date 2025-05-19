@@ -174,7 +174,7 @@ def app(supplement_name, delete_enabled, custom_chars):
             )
 
         st.subheader("Bereinigte Daten (10 Zeilen)")
-        st.dataframe(df_clean.head(10))
+        st.dataframe(df_clean.head(15))
 
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine="openpyxl") as writer:
