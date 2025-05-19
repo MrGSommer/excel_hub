@@ -11,17 +11,14 @@ from excel_utils import (
 
 
 def app(supplement_name, delete_enabled, custom_chars):
-    # Sidebar: Dynamischer Namenszusatz
+    # Datei-Supplement aus main.py übernehmen, sonst Sheet- oder Dateiname
     state = st.session_state
-    default_supp = supplement_name
-    if state.get("selected_sheet_values"):
-        default_supp = state.selected_sheet_values
-    elif state.get("uploaded_file_values"):
-        name = state.uploaded_file_values.name
-        default_supp = name.rsplit(".", 1)[0]
-    supplement = st.sidebar.text_input(
-        "Datei Supplement Name", value=default_supp, key="supplement_input"
+    supplement = supplement_name or (
+        state.get("selected_sheet_values")
+        or (state.uploaded_file_values.name.rsplit(".", 1)[0]
+            if state.get("uploaded_file_values") else "")
     )
+
 
     st.header("Spalten Mengen Merger")
     st.markdown("""
