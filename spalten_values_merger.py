@@ -9,7 +9,6 @@ from excel_utils import (
     convert_size_to_m
 )
 
-
 def app(supplement_name, delete_enabled, custom_chars):
     # Datei-Supplement aus main.py übernehmen, sonst Sheet- oder Dateiname
     state = st.session_state
@@ -18,7 +17,6 @@ def app(supplement_name, delete_enabled, custom_chars):
         or (state.uploaded_file_values.name.rsplit(".", 1)[0]
             if state.get("uploaded_file_values") else "")
     )
-
 
     st.header("Spalten Mengen Merger")
     st.markdown("""
@@ -66,11 +64,9 @@ def app(supplement_name, delete_enabled, custom_chars):
     )
     if not selected_sheet or selected_sheet == state.selected_sheet_values:
         return
-
-    # Neuer Sheet-Workflow
     state.selected_sheet_values = selected_sheet
 
-    # 1) Original einlesen (ohne Cleaning)
+    # 1) Original einlesen
     df_raw = pd.read_excel(
         state.uploaded_file_values,
         sheet_name=selected_sheet,
@@ -86,54 +82,35 @@ def app(supplement_name, delete_enabled, custom_chars):
     )
     state.header_row_values = header_row
 
-    # Vorschau: Original
     st.subheader("Originale Daten (5 Zeilen)")
     st.markdown(f"**Erkannter Header:** Zeile {header_row+1}")
     st.dataframe(df_original.head(5))
 
-    # 2) Automatische Grund-Bereinigung & optional custom_chars
+    # 2) Grund-Bereinigung
     df_clean = prepend_values_cleaning(df_original, delete_enabled, custom_chars)
-
-    # Vorschau: Bereinigt
     st.subheader("Bereinigte Daten (5 Zeilen)")
     st.dataframe(df_clean.head(5))
 
-    # State füllen für Merge-Workflow
     state.df_values = df_clean
     state.all_columns_values = list(df_clean.columns)
     state.hierarchies_values = apply_preset_hierarchy(df_clean, state.hierarchies_values)
 
     # 3) Hierarchie-Auswahl
     st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
-
-    # Liste der auszuschliessenden Mutterspalten
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
         "Unter Terrain", "eBKP-H", "Umbaustatus", "Material", "Anzahl", "GUID"
     ]
-
-    
     for measure in state.hierarchies_values:
-        # bereits verwendete Spalten in anderen Measures
         used = [
-            c 
-            for m, cols in state.hierarchies_values.items() 
-            if m != measure 
-            for c in cols
+            c for m, cols in state.hierarchies_values.items()
+            if m != measure for c in cols
         ]
-    
-        # Optionen: alle bereinigten Spalten ohne used und ohne master_cols
         options = [
-            c for c in state.all_columns_values 
+            c for c in state.all_columns_values
             if c not in used and c not in master_cols
         ]
-    
-        # Standard-Auswahl (falls bereits gesetzt)
-        default = [
-            c for c in state.hierarchies_values[measure] 
-            if c in options
-        ]
-    
+        default = [c for c in state.hierarchies_values[measure] if c in options]
         sel = st.multiselect(
             f"Spalten für {measure}",
             options=options,
@@ -155,6 +132,8 @@ def app(supplement_name, delete_enabled, custom_chars):
                 )
                 if sheet == state.selected_sheet_values:
                     df_sheet = prepend_values_cleaning(df_sheet, delete_enabled, custom_chars)
+
+                    # 4.1) Erzeugen und konvertieren der gemergten Spalten
                     for measure, hierarchy in state.hierarchies_values.items():
                         if hierarchy:
                             col0 = df_sheet[hierarchy[0]]
@@ -162,17 +141,45 @@ def app(supplement_name, delete_enabled, custom_chars):
                                 col0 = col0.combine_first(df_sheet[c])
                             new_name = {
                                 "Flaeche": "Fläche (m2)",
-                                "Laenge": "Länge (m)",
-                                "Dicke": "Dicke (m)",
-                                "Hoehe": "Höhe (m)",
+                                "Laenge":  "Länge (m)",
+                                "Dicke":   "Dicke (m)",
+                                "Hoehe":   "Höhe (m)",
                                 "Volumen": "Volumen (m3)"
                             }[measure]
                             df_sheet[new_name] = col0
-                            # Nach Merge: neue Spalte in Meter umwandeln und 0→NA
                             df_sheet[new_name] = df_sheet[new_name].apply(convert_size_to_m)
                             df_sheet[new_name] = df_sheet[new_name].mask(df_sheet[new_name] == 0, pd.NA)
-                    used_cols = {c for cols in state.hierarchies_values.values() for c in cols}
-                    df_sheet.drop(columns=[c for c in used_cols if c in df_sheet.columns], inplace=True)
+
+                    # 4.2) Reorder: neue Spalten am kleinsten Index der Quellen einfügen
+                    cols_before = list(df_sheet.columns)
+                    src_cols = [
+                        src for hierarchy in state.hierarchies_values.values()
+                        for src in hierarchy if src in cols_before
+                    ]
+                    indices = [cols_before.index(c) for c in src_cols] if src_cols else []
+                    if indices:
+                        insert_at = min(indices)
+                        merged_names = [
+                            name for name in
+                            ("Fläche (m2)", "Länge (m)", "Dicke (m)", "Höhe (m)", "Volumen (m3)")
+                            if name in df_sheet.columns
+                        ]
+                        # Drop aller Quell-Spalten
+                        df_sheet.drop(columns=src_cols, inplace=True)
+                        # Neuordnung
+                        cols_after = list(df_sheet.columns)
+                        for name in merged_names:
+                            cols_after.remove(name)
+                        for i, name in enumerate(merged_names):
+                            cols_after.insert(insert_at + i, name)
+                        df_sheet = df_sheet[cols_after]
+                    else:
+                        # Drop, wenn keine Quellen
+                        df_sheet.drop(
+                            columns=[c for cols in state.hierarchies_values.values() for c in cols
+                                     if c in df_sheet.columns],
+                            inplace=True
+                        )
 
                 df_sheet.to_excel(writer, sheet_name=sheet, index=False)
 
@@ -184,7 +191,6 @@ def app(supplement_name, delete_enabled, custom_chars):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        # Merge-Vorschau
         st.subheader("Merge-Vorschau")
         merged_xl = pd.ExcelFile(out, engine="openpyxl")
         for sh in merged_xl.sheet_names:
