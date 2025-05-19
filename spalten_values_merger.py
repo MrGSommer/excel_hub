@@ -109,7 +109,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     # Liste der auszuschliessenden Mutterspalten
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
-        "Unter Terrain", "eBKP-H", "Umbaustatus"
+        "Unter Terrain", "eBKP-H", "Umbaustatus", "Material", "Anzahl", "GUID"
     ]
 
     
