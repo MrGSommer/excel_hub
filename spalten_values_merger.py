@@ -105,10 +105,35 @@ def app(supplement_name, delete_enabled, custom_chars):
 
     # 3) Hierarchie-Auswahl
     st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
+
+    # Liste der auszuschliessenden Mutterspalten
+    master_cols = [
+        "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
+        "Unter Terrain", "eBKP-H", "Umbaustatus"
+    ]
+
+    
     for measure in state.hierarchies_values:
-        used = [c for m, cols in state.hierarchies_values.items() if m != measure for c in cols]
-        options = [c for c in state.all_columns_values if c not in used]
-        default = [c for c in state.hierarchies_values[measure] if c in options]
+        # bereits verwendete Spalten in anderen Measures
+        used = [
+            c 
+            for m, cols in state.hierarchies_values.items() 
+            if m != measure 
+            for c in cols
+        ]
+    
+        # Optionen: alle bereinigten Spalten ohne used und ohne master_cols
+        options = [
+            c for c in state.all_columns_values 
+            if c not in used and c not in master_cols
+        ]
+    
+        # Standard-Auswahl (falls bereits gesetzt)
+        default = [
+            c for c in state.hierarchies_values[measure] 
+            if c in options
+        ]
+    
         sel = st.multiselect(
             f"Spalten für {measure}",
             options=options,
