@@ -158,8 +158,8 @@ def app(supplement_name, delete_enabled, custom_chars):
             st.error(f"Fehler beim Einlesen: {e}")
             return
 
-        st.subheader("Originale Daten (10 Zeilen)")
-        st.dataframe(df.head(10))
+        st.subheader("Originale Daten (15 Zeilen)")
+        st.dataframe(df.head(15))
 
         use_match_sub = st.checkbox(
             "Sub-eBKP-H identisch zur Mutter ignorieren (Toggle)",
@@ -173,7 +173,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                 match_sub_toggle=use_match_sub
             )
 
-        st.subheader("Bereinigte Daten (10 Zeilen)")
+        st.subheader("Bereinigte Daten (15 Zeilen)")
         st.dataframe(df_clean.head(15))
 
         output = io.BytesIO()
