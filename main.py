@@ -13,42 +13,47 @@ st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
 st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen oder den Download von Solibri ITOs.")
 
-# Globale Einstellungen
 # Globale Einstellungen für alle Tools
 st.sidebar.header("Globale Einstellungen für alle Tools")
 with st.sidebar.expander("Verarbeitungseinstellungen"):
     st.markdown(
         """
         **File Supplement Name:**  
-        Leer lassen ⇒ jede App wählt Default (Dateiname oder Sheet)
+        Leer lassen ⇒ jede App setzt Default (Dateiname oder Sheet)
 
         **Globale Bereinigung:**  
-        Wird standardmässig angewendet.  
-        Mit Button temporär deaktivieren.
+        Entfernt standardmässig Mengeneinheiten (z. B. m2, m3, kg).
 
-        **Zusätzliche zu löschende Zeichen (kommagetrennt):**  
-        z. B. cm, CHF
+        **Zusätzliche Zeichen (kommagetrennt):**  
+        z. B. cm, CHF  
+        ⇒ Nur löschen, wenn Häkchen aktiviert
         """
     )
 
-# Standardmässig immer bereinigen, Button zum Deaktivieren
-delete_enabled = True
-if st.sidebar.button("Globale Bereinigung deaktivieren"):
-    delete_enabled = False
-
-# Supplement-Name leer starten, Sub-Apps setzen Default selbst
+# Supplement-Name (leer ⇒ Sub-Apps setzen selbst Default)
 supplement_name = st.sidebar.text_input(
     "File Supplement Name",
     value="",
     key="global_supplement"
 )
 
-# Zusätzliche Zeichen zum Löschen
+# Zusätzliche Zeichen
 custom_chars = st.sidebar.text_input(
-    "Zusätzliche zu löschende Zeichen (kommagetrennt)",
+    "Zusätzliche Zeichen (kommagetrennt)",
     value="",
     key="global_custom"
 )
+delete_custom = st.sidebar.checkbox(
+    "Zusätzliche Zeichen löschen",
+    value=False,
+    key="global_custom_delete"
+)
+
+# Flags für Sub-Apps
+delete_enabled = True
+if not delete_custom:
+    custom_chars = ""
+
 
 
 
