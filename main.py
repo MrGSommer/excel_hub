@@ -19,32 +19,33 @@ with st.sidebar.expander("Verarbeitungseinstellungen"):
     st.markdown(
         """
         **File Supplement Name:**  
-        Leer lassen ⇒ jede App setzt Default (Dateiname oder Sheet)
+        Leer lassen ⇒ Default aus Datei-/Sheet-Name.
 
-        **Globale Bereinigung:**  
-        Entfernt standardmässig Mengeneinheiten (z. B. m2, m3, kg).
+        **Grund-Bereinigung (immer aktiv):**  
+        - Mengeneinheiten entfernen  
+        - Konvertierung in Meter/m²/m³  
+        - 'Nicht klassifiziert' ⇒ None
 
         **Zusätzliche Zeichen (kommagetrennt):**  
         z. B. cm, CHF  
-        ⇒ Nur löschen, wenn Häkchen aktiviert
+        ⇒ nur entfernen, wenn Häkchen gesetzt
         """
     )
 
-# Supplement-Name (leer ⇒ Sub-Apps setzen selbst Default)
 supplement_name = st.sidebar.text_input(
     "File Supplement Name",
     value="",
     key="global_supplement"
 )
 
-# Zusätzliche Zeichen
 custom_chars = st.sidebar.text_input(
     "Zusätzliche Zeichen (kommagetrennt)",
     value="",
     key="global_custom"
 )
+
 delete_custom = st.sidebar.checkbox(
-    "Zusätzliche Zeichen löschen",
+    "Zusätzliche Zeichen entfernen",
     value=False,
     key="global_custom_delete"
 )
@@ -54,16 +55,14 @@ delete_enabled = True
 if not delete_custom:
     custom_chars = ""
 
-
-
-
+# Tabs und Sub-Apps
 tabs = st.tabs([
     "Tool-Beratung",
     "Excel-Anforderungen",
-    "Spalten Mengen Merger", 
-    "Mehrschichtig Bereinigen", 
-    "Master Table", 
-    "Merge to Table", 
+    "Spalten Mengen Merger",
+    "Mehrschichtig Bereinigen",
+    "Master Table",
+    "Merge to Table",
     "Merge to Sheets",
     "Flow Merging",
     "Download Templates"
