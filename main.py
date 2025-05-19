@@ -14,26 +14,43 @@ st.title("Excel Operation Tools 🚀")
 st.markdown("Willkommen! Wählen Sie einen Tab für verschiedene Excel-Operationen oder den Download von Solibri ITOs.")
 
 # Globale Einstellungen
-st.sidebar.header("Globale Einstellungen für Advanced Excel Merger")
-with st.sidebar.expander("Globale Verarbeitungseinstellungen"):
+# Globale Einstellungen für alle Tools
+st.sidebar.header("Globale Einstellungen für alle Tools")
+with st.sidebar.expander("Verarbeitungseinstellungen"):
     st.markdown(
         """
-        **Diese Einstellungen gelten für alle Tools:**
+        **File Supplement Name:**  
+        Leer lassen ⇒ jede App wählt Default (Dateiname oder Sheet)
 
-        - 🔤 **File Supplement Name:**  
-          Namenszusatz für generierte Dateien (z. B. `default_merged_output.xlsx`)
-        
-        - ✂️ **Zeichen in Zellen entfernen:**  
-          Entfernt Einheiten wie `" m2"`, `" m3"`, `" kg"` usw.
-        
-        - ✏️ **Zusätzliche Zeichen (kommagetrennt):**  
-          Weitere Zeichen wie `"cm", "CHF"` zur Bereinigung.
+        **Globale Bereinigung:**  
+        Wird standardmässig angewendet.  
+        Mit Button temporär deaktivieren.
+
+        **Zusätzliche zu löschende Zeichen (kommagetrennt):**  
+        z. B. cm, CHF
         """
     )
 
-supplement_name = st.sidebar.text_input("File Supplement Name", value="default", key="global_supplement")
-delete_enabled = st.sidebar.checkbox("Zeichen in Zellen entfernen", key="global_delete")
-custom_chars = st.sidebar.text_input("Zusätzliche zu löschende Zeichen (kommagetrennt)", value="", key="global_custom")
+# Standardmässig immer bereinigen, Button zum Deaktivieren
+delete_enabled = True
+if st.sidebar.button("Globale Bereinigung deaktivieren"):
+    delete_enabled = False
+
+# Supplement-Name leer starten, Sub-Apps setzen Default selbst
+supplement_name = st.sidebar.text_input(
+    "File Supplement Name",
+    value="",
+    key="global_supplement"
+)
+
+# Zusätzliche Zeichen zum Löschen
+custom_chars = st.sidebar.text_input(
+    "Zusätzliche zu löschende Zeichen (kommagetrennt)",
+    value="",
+    key="global_custom"
+)
+
+
 
 tabs = st.tabs([
     "Tool-Beratung",
