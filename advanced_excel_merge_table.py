@@ -74,7 +74,6 @@ def app(supplement_name, delete_enabled, custom_chars):
                 axis=1
             )
             st.write("Tabelle (Duplikate gelb markiert):")
-            st.write(styled)
         else:
             st.success("Keine GUID-Duplikate gefunden.")
             st.dataframe(df)
