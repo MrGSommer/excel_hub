@@ -17,8 +17,6 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         delete_enabled (bool): Ob zusaetzliche Zeichen entfernt werden.
         custom_chars (str): Kommagetrennte Liste zusaetzlicher Zeichen.
     """
-    state = st.session_state
-    # File upload
     st.title("Excel Vergleichstool 📝")
     col1, col2 = st.columns(2)
     with col1:
@@ -29,7 +27,6 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         st.info("Bitte beide Dateien hochladen, um den Vergleich zu starten.")
         return
 
-    # Common sheets
     xls_old = pd.ExcelFile(old_file, engine="openpyxl")
     xls_new = pd.ExcelFile(new_file, engine="openpyxl")
     common = list(set(xls_old.sheet_names) & set(xls_new.sheet_names))
@@ -47,30 +44,31 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
     df_old = load_and_clean(old_file, sheet)
     df_new = load_and_clean(new_file, sheet)
-    # GUID check
     if "GUID" not in df_old.columns or "GUID" not in df_new.columns:
         st.error("Spalte 'GUID' nicht in beiden Tabellen gefunden.")
         return
-    # Merge and indicators
+
     df = df_old.merge(df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True)
     cols = [c for c in df_old.columns if c != "GUID"]
-    df['__changed'] = df.apply(lambda r: any(r[f"{c}_old"] != r[f"{c}_new"] for c in cols), axis=1)
+    df['__changed'] = df.eval(" or ".join([f"{c}_old != {c}_new" for c in cols]))
 
-    # Grid config
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column()
-    # row styling via JsCode
-    gb.configure_default_column(cellStyle=JsCode(
+    # Build and then inject JS for row styling
+    grid_opts = gb.build()
+    grid_opts['getRowStyle'] = JsCode(
         "function(params) { return params.data.__changed ? {backgroundColor: '#D3D3D3'} : {}; }"
-    ))
-    # cell styling for changes
+    )
+    # Cell styling
     for col in cols:
         js = (
-            f"function(params) {{ return params.data['{col}_old'] !== params.data['{col}_new'] "
-            "? {backgroundColor: 'yellow'} : {}; }}"
-        )
-        gb.configure_column(f"{col}_new", cellStyle=JsCode(js))
-    grid_opts = gb.build()
+            "function(params) { return params.data['{col}_old'] !== params.data['{col}_new'] "
+            "? {backgroundColor: 'yellow'} : {}; }"
+        ).replace('{col}', col)
+        # inject into columnDefs
+        for defn in grid_opts['columnDefs']:
+            if defn.get('field') == f"{col}_new":
+                defn['cellStyle'] = JsCode(js)
 
     st.subheader("Vergleichsergebnis")
     AgGrid(
@@ -82,7 +80,6 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         height=500
     )
 
-    # Download
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name=sheet, index=False)
