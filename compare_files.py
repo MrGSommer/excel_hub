@@ -5,14 +5,15 @@ from excel_utils import (
     detect_header_row,
     prepend_values_cleaning
 )
-from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode
+from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 import io
 
 
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     """
     Streamlit-App zum Vergleichen zweier Excel-Dateien anhand der GUID.
-    Vergleicht definierte Master- und Measure-Spalten nur, wenn in beiden Dateien vorhanden.
+    Gibt die neue Datei farblich markiert zurück: geänderte Zeilen grau, geänderte Zellen gelb.
     GUID dient als Primary Key.
     """
     st.title("Excel Vergleichstool 📝")
@@ -51,62 +52,66 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
         "Material", "Typ", "Name", "Ergänzung"
     ]
-    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)" ]
+    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
+    # Merge
     df = df_old.merge(
-        df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True
+        df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=False
     )
-    # Spalten zum Vergleichen bestimmen
+    # Nur vorhandene Spalten
     compare = [col for col in master_cols + measure_cols
                if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
+    # Diff-Flags
+    diffs = np.column_stack([df[f"{c}_old"] != df[f"{c}_new"] for c in compare])
+    row_changed = diffs.any(axis=1)
 
-    # Diff-Indikator
-    diffs = [df[f"{c}_old"] != df[f"{c}_new"] for c in compare]
-    df['__changed'] = np.logical_or.reduce(diffs) if diffs else False
-
-    # Grid-Optionen
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column()
-
-    # Zeilen grau einfärben bei Änderungen
-    get_row_style = (
-        "function(params) {"
-        "return params.data.__changed ? {backgroundColor: '#D3D3D3'} : {};"
-        "}"
-    )
-    gb.configure_grid_options(getRowStyle=get_row_style)
-
-    # Zellen gelb einfärben für verglichene Spalten
-    for col in compare:
-        js = (
-            "function(params) {"
-            f"return params.data['{col}_old'] !== params.data['{col}_new']"
-            " ? {backgroundColor: 'yellow'} : {};"
-            "}"
-        )
-        gb.configure_column(f"{col}_new", cellStyleJs=js)
-
-    grid_opts = gb.build()
-
-    st.subheader("Vergleichsergebnis")
-    AgGrid(
-        df,
-        gridOptions=grid_opts,
-        data_return_mode=DataReturnMode.FILTERED,
-        update_mode=GridUpdateMode.NO_UPDATE,
-        enable_enterprise_modules=False,
-        height=500
-    )
-
-    # Download
+    # Bereite Download mit openpyxl vor
     buffer = io.BytesIO()
+    # Schreibe df_new (Original neue Datei) in Excel
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name=sheet, index=False)
+        # schreibe alle Spalten der neuen Version
+        df_new.to_excel(writer, sheet_name=sheet, index=False)
     buffer.seek(0)
+
+    # Lese Workbook für Formatierung
+    wb = load_workbook(buffer)
+    ws = wb[sheet]
+
+    grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+
+    # Mapiere Spaltennamen auf Spaltenindex
+    header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
+    col_idx = {col: i+1 for i, col in enumerate(header)}
+
+    # Färbe Zeilen und Zellen
+    for idx, changed in enumerate(row_changed, start=2):  # Data ab Zeile 2
+        if not changed:
+            continue
+        # ganze Zeile grau
+        for cell in ws[idx]:
+            cell.fill = grey_fill
+        # geänderte Zellen gelb
+        for j, col in enumerate(compare):
+            c = compare[j]
+            col_name = f"{c}_new"
+            if df[f"{c}_old"].iloc[idx-2] != df[f"{c}_new"].iloc[idx-2]:
+                # finde Spalte im neuen Sheet (ohne _new)
+                if c in col_idx:
+                    cell = ws.cell(row=idx, column=col_idx[c])
+                    cell.fill = yellow_fill
+
+    # Speichere formatiertes Workbook zurück
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+
     filename = f"vergleich_{supplement_name or sheet}.xlsx"
     st.download_button(
-        "Markierte Excel herunterladen",
-        data=buffer,
+        "Formatiertes Excel herunterladen",
+        data=out,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
+    st.success("Download bereitgestellt.")
