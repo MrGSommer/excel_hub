@@ -11,7 +11,8 @@ import io
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     """
     Schnelles Vergleichen zweier Excel-Dateien auf Basis GUID.
-    Liefert neue Datei mit farblicher Hervorhebung per XlsxWriter-Conditional-Formatting.
+    Ausgabe der neuen Datei mit farblicher Hervorhebung per XlsxWriter-Conditional-Formatting.
+    Zeigt Fortschritt während der Verarbeitung.
     """
     st.title("Excel Vergleichstool 📝")
     col1, col2 = st.columns(2)
@@ -23,6 +24,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         st.info("Bitte beide Dateien hochladen, um den Vergleich zu starten.")
         return
 
+    # Einlesen
     xls_old = pd.ExcelFile(old_file, engine="openpyxl")
     xls_new = pd.ExcelFile(new_file, engine="openpyxl")
     common = list(set(xls_old.sheet_names) & set(xls_new.sheet_names))
@@ -50,19 +52,31 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         "Material", "Typ", "Name", "Ergänzung"
     ]
     measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
-
-    # Merge DataFrames
-    df = df_old.merge(df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=False)
-    # Spalten bestimmen
-    compare = [col for col in master_cols + measure_cols if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
+    compare = [c for c in master_cols + measure_cols if c in df_old.columns and c in df_new.columns]
     if not compare:
-        st.error("Keine zu vergleichenden Spalten gefunden.")
+        st.error("Keine gemeinsamen Spalten zum Vergleichen gefunden.")
         return
 
-    # DataFrame vorbereiten
-    # df_new enthält die Basis
+    # Fortschrittsanzeige
+    total_steps = len(compare) + 2
+    progress = st.progress(0)
+    step = 0
 
-    # Excel-Ausgabe mit XlsxWriter
+    # DataFrame für Vergleich vorbereiten via Merge auf GUID
+    df_cmp = df_new.merge(df_old[['GUID'] + compare], on='GUID', how='left', suffixes=('', '_old'))
+    step += 1
+    progress.progress(step/total_steps)
+
+    # Diff-Matrix vektorisieren
+    nrows = len(df_cmp)
+    diff_matrix = np.zeros((nrows, len(compare)), dtype=bool)
+    for j, col in enumerate(compare):
+        diff_matrix[:, j] = df_cmp[col] != df_cmp[f"{col}_old"]
+        step += 1
+        progress.progress(step/total_steps)
+    row_mask = diff_matrix.any(axis=1)
+
+    # Excel-Ausgabe mit XlsxWriter und Conditional Formatting
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df_new.to_excel(writer, sheet_name=sheet, index=False)
@@ -73,28 +87,22 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         grey_format = workbook.add_format({'bg_color': '#DDDDDD'})
         yellow_format = workbook.add_format({'bg_color': '#FFFF00'})
 
-        # Indizes
-        nrows, ncols = df_new.shape
-        # Mapping Spaltennamen zu Indizes
+        # Spaltenindex-Mapping
         col_idx = {col: i for i, col in enumerate(df_new.columns)}
 
-        # Reihenweise Diff-Check vektorisieren
-        diff_matrix = np.zeros((nrows, len(compare)), dtype=bool)
-        for j, col in enumerate(compare):
-            diff_matrix[:, j] = df[f"{col}_old"].fillna('').to_numpy() != df[f"{col}_new"].fillna('').to_numpy()
-        row_mask = diff_matrix.any(axis=1)
-
-        # Graue Zeilen
-        for row, change in enumerate(row_mask, start=1):
-            if change:
-                worksheet.set_row(row, None, grey_format)
-        # Gelbe Zellen
+        # Graue Zeilen setzen
+        for r, changed in enumerate(row_mask, start=1):
+            if changed:
+                worksheet.set_row(r, None, grey_format)
+        # Gelbe Zellen setzen
         for j, col in enumerate(compare):
             colnum = col_idx[col]
-            cells = [{'row': r, 'col': colnum} for r, changed in enumerate(diff_matrix[:, j], start=1) if changed]
-            # Batch write (set format on write)
-            for cell in cells:
-                worksheet.write(cell['row'], cell['col'], df_new.iloc[cell['row']-1, colnum], yellow_format)
+            for r, changed in enumerate(diff_matrix[:, j], start=1):
+                if changed:
+                    worksheet.write(r, colnum, df_new.iat[r-1, colnum], yellow_format)
+
+    step += 1
+    progress.progress(1.0)
 
     buffer.seek(0)
     filename = f"vergleich_{supplement_name or sheet}.xlsx"
