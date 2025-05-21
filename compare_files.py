@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from excel_utils import (
     detect_header_row,
     prepend_values_cleaning
@@ -11,11 +12,6 @@ import io
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     """
     Streamlit-App zum Vergleichen zweier Excel-Dateien anhand der GUID.
-
-    Args:
-        supplement_name (str): Suffix fuer Dateinamen bei Download.
-        delete_enabled (bool): Ob zusaetzliche Zeichen entfernt werden.
-        custom_chars (str): Kommagetrennte Liste zusaetzlicher Zeichen.
     """
     st.title("Excel Vergleichstool 📝")
     col1, col2 = st.columns(2)
@@ -48,24 +44,28 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         st.error("Spalte 'GUID' nicht in beiden Tabellen gefunden.")
         return
 
+    # Merge und Diff-Spalte
     df = df_old.merge(df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True)
     cols = [c for c in df_old.columns if c != "GUID"]
-    df['__changed'] = df.eval(" or ".join([f"{c}_old != {c}_new" for c in cols]))
+    diffs = [(df[f"{c}_old"] != df[f"{c}_new"]) for c in cols]
+    df['__changed'] = np.logical_or.reduce(diffs)
 
+    # Grid-Optionen
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column()
-    # Build and then inject JS for row styling
     grid_opts = gb.build()
+    # Zeilen grau einfärben bei Änderungen
     grid_opts['getRowStyle'] = JsCode(
-        "function(params) { return params.data.__changed ? {backgroundColor: '#D3D3D3'} : {}; }"
+        "function(params) { return params.data.__changed ? {'backgroundColor': '#D3D3D3'} : {}; }"
     )
-    # Cell styling
+    # Zellen gelb einfärben
     for col in cols:
         js = (
-            "function(params) { return params.data['{col}_old'] !== params.data['{col}_new'] "
-            "? {backgroundColor: 'yellow'} : {}; }"
-        ).replace('{col}', col)
-        # inject into columnDefs
+            f"function(params) {{ "
+            f"return params.data['{col}_old'] !== params.data['{col}_new'] "
+            f"? {{'backgroundColor':'yellow'}} : {{}}; }}"
+        )
+        # injizieren in columnDefs
         for defn in grid_opts['columnDefs']:
             if defn.get('field') == f"{col}_new":
                 defn['cellStyle'] = JsCode(js)
@@ -80,6 +80,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         height=500
     )
 
+    # Download
     buffer = io.BytesIO()
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
         df.to_excel(writer, sheet_name=sheet, index=False)
