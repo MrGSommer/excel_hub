@@ -18,15 +18,18 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     Vergleicht zwei Excel-Dateien anhand GUID, behandelt alle Spalten als Text (lower).
     Gibt neue Datei mit farblicher Hervorhebung zurück: graue Zeilen, gelbe Zellen.
     Zeigt Fortschritt und aktuelle Zeileneinträge.
-    Fehler werden in der Konsole geloggt und dem Nutzer angezeigt.
+    Fehler werden geloggt und dem Nutzer angezeigt.
     """
     st.title("Excel Vergleichstool 📝")
-    # Grundlegende UI
     col1, col2 = st.columns(2)
     with col1:
-        old_file = st.file_uploader("Alte Version (Excel)", type=["xls", "xlsx"], key="old_comp")
+        old_file = st.file_uploader(
+            "Alte Version (Excel)", type=["xls", "xlsx"], key="old_comp"
+        )
     with col2:
-        new_file = st.file_uploader("Neue Version (Excel)", type=["xls", "xlsx"], key="new_comp")
+        new_file = st.file_uploader(
+            "Neue Version (Excel)", type=["xls", "xlsx"], key="new_comp"
+        )
     if not old_file or not new_file:
         st.info("Bitte beide Dateien hochladen, um den Vergleich zu starten.")
         return
@@ -87,9 +90,14 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             diffs[:, j] = new_series != old_series
         row_mask = diffs.any(axis=1)
 
-        # Excel-Ausgabe mit XlsxWriter
+        # Excel-Ausgabe mit XlsxWriter (nan_inf_to_errors aktiviert)
         buffer = io.BytesIO()
-        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        writer = pd.ExcelWriter(
+            buffer,
+            engine='xlsxwriter',
+            engine_kwargs={'options': {'nan_inf_to_errors': True}}
+        )
+        with writer:
             df_new.to_excel(writer, sheet_name=sheet, index=False)
             workbook = writer.book
             worksheet = writer.sheets[sheet]
@@ -107,7 +115,6 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
                         if diffs[i-1, j]:
                             colnum = col_idx[col]
                             val = df_new.iat[i-1, colnum]
-                            # Schreibe Wert sicher
                             if not isinstance(val, (int, float, str, bool)):
                                 val = str(val)
                             worksheet.write(i, colnum, val, yellow)
