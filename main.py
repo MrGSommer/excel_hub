@@ -8,6 +8,7 @@ from advanced_excel_merge_sheets import app as advanced_merge_sheets
 from merging_flow import app as merging_flow_columns_to_table
 from app_advisor import app_advisor
 from ito_download import app as download_templates
+from compare_files import app as compare_tool
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
@@ -64,7 +65,7 @@ tabs = st.tabs([
     "Master Table",
     "Merge to Table",
     "Merge to Sheets",
-    "Flow Merging",
+    "Versionierung",
     "Download Templates"
 ])
 
@@ -90,7 +91,7 @@ with tabs[6]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
 
 with tabs[7]:
-    merging_flow_columns_to_table(supplement_name, delete_enabled, custom_chars)
+    compare_tool(delete_enabled, custom_chars)
 
 with tabs[8]:
     download_templates()
