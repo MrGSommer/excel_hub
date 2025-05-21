@@ -128,6 +128,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
+        st.stop()
         st.success("Download bereitgestellt.")
 
     except Exception as e:
