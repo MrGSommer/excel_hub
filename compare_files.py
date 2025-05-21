@@ -54,58 +54,51 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     ]
     measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
-    # Merge
+    # Merge DataFrames
     df = df_old.merge(
         df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=False
     )
-    # Nur vorhandene Spalten
+    # Spalten zum Vergleichen bestimmen
     compare = [col for col in master_cols + measure_cols
                if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
-    # Diff-Flags
-    diffs = np.column_stack([df[f"{c}_old"] != df[f"{c}_new"] for c in compare])
+    # Erzeuge Bool-Array für Diffs
+    diffs = np.vstack([ (df[f"{c}_old"] != df[f"{c}_new"]).fillna(False).to_numpy() for c in compare ]).T
     row_changed = diffs.any(axis=1)
 
-    # Bereite Download mit openpyxl vor
+    # Schreibe neue DataFrame in Excel
     buffer = io.BytesIO()
-    # Schreibe df_new (Original neue Datei) in Excel
     with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-        # schreibe alle Spalten der neuen Version
         df_new.to_excel(writer, sheet_name=sheet, index=False)
     buffer.seek(0)
 
-    # Lese Workbook für Formatierung
+    # Lese Workbook und Style
     wb = load_workbook(buffer)
     ws = wb[sheet]
-
     grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
     yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
 
-    # Mapiere Spaltennamen auf Spaltenindex
+    # Mappi Spaltennamen zu Excel-Spaltenindices
     header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-    col_idx = {col: i+1 for i, col in enumerate(header)}
+    col_idx = {col: idx+1 for idx, col in enumerate(header)}
 
-    # Färbe Zeilen und Zellen
-    for idx, changed in enumerate(row_changed, start=2):  # Data ab Zeile 2
+    # Style anwenden
+    for row_i, changed in enumerate(row_changed, start=2):
         if not changed:
             continue
-        # ganze Zeile grau
-        for cell in ws[idx]:
+        # ganze Zeile grau füllen
+        for cell in ws[row_i]:
             cell.fill = grey_fill
-        # geänderte Zellen gelb
+        # geänderte Zellen gelb füllen
         for j, col in enumerate(compare):
-            c = compare[j]
-            col_name = f"{c}_new"
-            if df[f"{c}_old"].iloc[idx-2] != df[f"{c}_new"].iloc[idx-2]:
-                # finde Spalte im neuen Sheet (ohne _new)
-                if c in col_idx:
-                    cell = ws.cell(row=idx, column=col_idx[c])
-                    cell.fill = yellow_fill
+            if diffs[row_i-2, j]:
+                excel_col = col_idx.get(col)
+                if excel_col:
+                    ws.cell(row=row_i, column=excel_col).fill = yellow_fill
 
-    # Speichere formatiertes Workbook zurück
+    # Speichere und gebe Download
     out = io.BytesIO()
     wb.save(out)
     out.seek(0)
-
     filename = f"vergleich_{supplement_name or sheet}.xlsx"
     st.download_button(
         "Formatiertes Excel herunterladen",
@@ -113,5 +106,4 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
-
     st.success("Download bereitgestellt.")
