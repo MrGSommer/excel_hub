@@ -122,14 +122,15 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
         buffer.seek(0)
         filename = f"vergleich_{supplement_name or sheet}.xlsx"
-        st.download_button(
+        clicked = st.download_button(
             "Formatiertes Excel herunterladen",
             data=buffer,
             file_name=filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        st.stop()
-        st.success("Download bereitgestellt.")
+        if clicked:
+            st.success("Download bereitgestellt.")
+            st.stop()
 
     except Exception as e:
         # Log to console
