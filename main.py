@@ -90,7 +90,7 @@ with tabs[6]:
     advanced_merge_sheets(supplement_name, delete_enabled, custom_chars)
 
 with tabs[7]:
-    compare_tool(delete_enabled, custom_chars)
+    compare_tool(supplement_name, delete_enabled, custom_chars)
 
 with tabs[8]:
     download_templates()
