@@ -12,6 +12,7 @@ import io
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     """
     Streamlit-App zum Vergleichen zweier Excel-Dateien anhand der GUID.
+    Vergleicht definierte Master- und Measure-Spalten nur, wenn in beiden Dateien vorhanden.
     """
     st.title("Excel Vergleichstool 📝")
     col1, col2 = st.columns(2)
@@ -40,36 +41,54 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
     df_old = load_and_clean(old_file, sheet)
     df_new = load_and_clean(new_file, sheet)
+    # GUID check
     if "GUID" not in df_old.columns or "GUID" not in df_new.columns:
         st.error("Spalte 'GUID' nicht in beiden Tabellen gefunden.")
         return
 
-    # Merge und Diff-Spalte
-    df = df_old.merge(df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True)
-    cols = [c for c in df_old.columns if c != "GUID"]
-    diffs = [(df[f"{c}_old"] != df[f"{c}_new"]) for c in cols]
-    df['__changed'] = np.logical_or.reduce(diffs)
+    # Definierte Spalten
+    master_cols = [
+        "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
+        "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
+        "Material", "Typ", "Name", "Ergänzung"
+    ]
+    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
+
+    # Merge
+    df = df_old.merge(
+        df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True
+    )
+
+    # Ermittlung der Spalten, die in beiden Versionen existieren
+    compare_cols = []
+    for col in master_cols + measure_cols:
+        if f"{col}_old" in df.columns and f"{col}_new" in df.columns:
+            compare_cols.append(col)
+
+    # Diff-Bool für jede Zeile
+    diffs = [(df[f"{c}_old"] != df[f"{c}_new"]) for c in compare_cols]
+    df['__changed'] = np.logical_or.reduce(diffs) if diffs else False
 
     # Grid-Optionen
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column()
     grid_opts = gb.build()
-    # Zeilen grau einfärben bei Änderungen
+    # Zeilen grau einfärben, wenn Änderung in einer compare-Spalte
     grid_opts['getRowStyle'] = JsCode(
         "function(params) { return params.data.__changed ? {'backgroundColor': '#D3D3D3'} : {}; }"
     )
-    # Zellen gelb einfärben
-    for col in cols:
+    # Zellen gelb einfärben für geänderte compare-Spalten
+    for col in compare_cols:
         js = (
-            f"function(params) {{ "
+            f"function(params) {{"
             f"return params.data['{col}_old'] !== params.data['{col}_new'] "
             f"? {{'backgroundColor':'yellow'}} : {{}}; }}"
         )
-        # injizieren in columnDefs
         for defn in grid_opts['columnDefs']:
             if defn.get('field') == f"{col}_new":
                 defn['cellStyle'] = JsCode(js)
 
+    # Darstellung
     st.subheader("Vergleichsergebnis")
     AgGrid(
         df,
