@@ -5,16 +5,13 @@ from excel_utils import (
     detect_header_row,
     prepend_values_cleaning
 )
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
 import io
 
 
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     """
-    Streamlit-App zum Vergleichen zweier Excel-Dateien anhand der GUID.
-    Gibt die neue Datei farblich markiert zurück: geänderte Zeilen grau, geänderte Zellen gelb.
-    GUID dient als Primary Key.
+    Schnelles Vergleichen zweier Excel-Dateien auf Basis GUID.
+    Liefert neue Datei mit farblicher Hervorhebung per XlsxWriter-Conditional-Formatting.
     """
     st.title("Excel Vergleichstool 📝")
     col1, col2 = st.columns(2)
@@ -55,54 +52,55 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
     # Merge DataFrames
-    df = df_old.merge(
-        df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=False
-    )
-    # Spalten zum Vergleichen bestimmen
-    compare = [col for col in master_cols + measure_cols
-               if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
-    # Erzeuge Bool-Array für Diffs
-    diffs = np.vstack([ (df[f"{c}_old"] != df[f"{c}_new"]).fillna(False).to_numpy() for c in compare ]).T
-    row_changed = diffs.any(axis=1)
+    df = df_old.merge(df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=False)
+    # Spalten bestimmen
+    compare = [col for col in master_cols + measure_cols if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
+    if not compare:
+        st.error("Keine zu vergleichenden Spalten gefunden.")
+        return
 
-    # Schreibe neue DataFrame in Excel
+    # DataFrame vorbereiten
+    # df_new enthält die Basis
+
+    # Excel-Ausgabe mit XlsxWriter
     buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
         df_new.to_excel(writer, sheet_name=sheet, index=False)
-    buffer.seek(0)
+        workbook  = writer.book
+        worksheet = writer.sheets[sheet]
 
-    # Lese Workbook und Style
-    wb = load_workbook(buffer)
-    ws = wb[sheet]
-    grey_fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-    yellow_fill = PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+        # Formate
+        grey_format = workbook.add_format({'bg_color': '#DDDDDD'})
+        yellow_format = workbook.add_format({'bg_color': '#FFFF00'})
 
-    # Mappi Spaltennamen zu Excel-Spaltenindices
-    header = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-    col_idx = {col: idx+1 for idx, col in enumerate(header)}
+        # Indizes
+        nrows, ncols = df_new.shape
+        # Mapping Spaltennamen zu Indizes
+        col_idx = {col: i for i, col in enumerate(df_new.columns)}
 
-    # Style anwenden
-    for row_i, changed in enumerate(row_changed, start=2):
-        if not changed:
-            continue
-        # ganze Zeile grau füllen
-        for cell in ws[row_i]:
-            cell.fill = grey_fill
-        # geänderte Zellen gelb füllen
+        # Reihenweise Diff-Check vektorisieren
+        diff_matrix = np.zeros((nrows, len(compare)), dtype=bool)
         for j, col in enumerate(compare):
-            if diffs[row_i-2, j]:
-                excel_col = col_idx.get(col)
-                if excel_col:
-                    ws.cell(row=row_i, column=excel_col).fill = yellow_fill
+            diff_matrix[:, j] = df[f"{col}_old"].fillna('').to_numpy() != df[f"{col}_new"].fillna('').to_numpy()
+        row_mask = diff_matrix.any(axis=1)
 
-    # Speichere und gebe Download
-    out = io.BytesIO()
-    wb.save(out)
-    out.seek(0)
+        # Graue Zeilen
+        for row, change in enumerate(row_mask, start=1):
+            if change:
+                worksheet.set_row(row, None, grey_format)
+        # Gelbe Zellen
+        for j, col in enumerate(compare):
+            colnum = col_idx[col]
+            cells = [{'row': r, 'col': colnum} for r, changed in enumerate(diff_matrix[:, j], start=1) if changed]
+            # Batch write (set format on write)
+            for cell in cells:
+                worksheet.write(cell['row'], cell['col'], df_new.iloc[cell['row']-1, colnum], yellow_format)
+
+    buffer.seek(0)
     filename = f"vergleich_{supplement_name or sheet}.xlsx"
     st.download_button(
         "Formatiertes Excel herunterladen",
-        data=out,
+        data=buffer,
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
