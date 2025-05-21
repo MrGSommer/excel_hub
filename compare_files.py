@@ -16,13 +16,38 @@ def app(delete_enabled: bool, custom_chars: str):
         delete_enabled (bool): Ob zusätzliche Zeichen entfernt werden.
         custom_chars (str): Kommagetrennte Liste zusätzlicher Zeichen.
     """
-    st.set_page_config(page_title="Excel Vergleichstool", layout="wide")
     st.title("Excel Vergleichstool 📝")
 
-    # Sidebar: Einstellungen
-    st.sidebar.header("Bereinigungseinstellungen (optional)")
-    st.sidebar.checkbox("Zusätzliche Zeichen entfernen", value=delete_enabled, key="comp_delete")
-    st.sidebar.text_input("Zusätzliche Zeichen (kommagetrennt)", value=custom_chars, key="comp_chars")
+    # Datei-Supplement aus main.py übernehmen, sonst Sheet- oder Dateiname
+    state = st.session_state
+    supplement = supplement_name or (
+        state.get("selected_sheet_values")
+        or (state.uploaded_file_values.name.rsplit(".", 1)[0]
+            if state.get("uploaded_file_values") else "")
+    )
+
+    st.header("Spalten Mengen Merger")
+    st.markdown("""
+    **Einleitung:**  
+    Laden Sie eine Excel-Datei hoch, wählen Sie ein Arbeitsblatt.  
+    Anschliessend sehen Sie erst das Original, dann die bereinigte Version, bevor Sie die Hierarchie festlegen.
+    """)
+
+    # Session-State initialisieren
+    if "uploaded_file_values" not in state:
+        state.uploaded_file_values = None
+    if "sheet_names_values" not in state:
+        state.sheet_names_values = []
+    if "selected_sheet_values" not in state:
+        state.selected_sheet_values = None
+    if "header_row_values" not in state:
+        state.header_row_values = None
+    if "df_values" not in state:
+        state.df_values = None
+    if "all_columns_values" not in state:
+        state.all_columns_values = []
+    if "hierarchies_values" not in state:
+        state.hierarchies_values = {"Dicke": [], "Flaeche": [], "Volumen": [], "Laenge": [], "Hoehe": []}
 
     # Datei-Upload
     st.header("Dateien zum Vergleich hochladen")
