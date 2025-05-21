@@ -41,12 +41,10 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
     df_old = load_and_clean(old_file, sheet)
     df_new = load_and_clean(new_file, sheet)
-    # GUID check
     if "GUID" not in df_old.columns or "GUID" not in df_new.columns:
         st.error("Spalte 'GUID' nicht in beiden Tabellen gefunden.")
         return
 
-    # Definierte Spalten
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
@@ -54,41 +52,32 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     ]
     measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
-    # Merge
     df = df_old.merge(
         df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True
     )
+    # Bestimme Spalten zum Vergleichen
+    compare = [col for col in master_cols + measure_cols
+               if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
 
-    # Ermittlung der Spalten, die in beiden Versionen existieren
-    compare_cols = []
-    for col in master_cols + measure_cols:
-        if f"{col}_old" in df.columns and f"{col}_new" in df.columns:
-            compare_cols.append(col)
-
-    # Diff-Bool für jede Zeile
-    diffs = [(df[f"{c}_old"] != df[f"{c}_new"]) for c in compare_cols]
+    # Diff-Indikator
+    diffs = [df[f"{c}_old"] != df[f"{c}_new"] for c in compare]
     df['__changed'] = np.logical_or.reduce(diffs) if diffs else False
 
-    # Grid-Optionen
+    # GridConfig
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column()
-    grid_opts = gb.build()
-    # Zeilen grau einfärben, wenn Änderung in einer compare-Spalte
-    grid_opts['getRowStyle'] = JsCode(
-        "function(params) { return params.data.__changed ? {'backgroundColor': '#D3D3D3'} : {}; }"
-    )
-    # Zellen gelb einfärben für geänderte compare-Spalten
-    for col in compare_cols:
-        js = (
-            f"function(params) {{"
-            f"return params.data['{col}_old'] !== params.data['{col}_new'] "
-            f"? {{'backgroundColor':'yellow'}} : {{}}; }}"
+    # Row style JS
+    js_row = JsCode("function(params) { return params.data.__changed ? {\"backgroundColor\": \"#D3D3D3\"} : {}; }")
+    gb.configure_grid_options(getRowStyle=js_row)
+    # Cell style JS für jede compare-Spalte
+    for col in compare:
+        js_cell = JsCode(
+            f"function(params) {{ return params.data['{col}_old'] !== params.data['{col}_new'] ? {{'backgroundColor':'yellow'}} : {{}}; }}"
         )
-        for defn in grid_opts['columnDefs']:
-            if defn.get('field') == f"{col}_new":
-                defn['cellStyle'] = JsCode(js)
+        gb.configure_column(f"{col}_new", cellStyleJs=js_cell)
 
-    # Darstellung
+    grid_opts = gb.build()
+
     st.subheader("Vergleichsergebnis")
     AgGrid(
         df,
