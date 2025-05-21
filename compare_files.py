@@ -5,7 +5,7 @@ from excel_utils import (
     detect_header_row,
     prepend_values_cleaning
 )
-from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode, JsCode
+from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode
 import io
 
 
@@ -13,6 +13,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     """
     Streamlit-App zum Vergleichen zweier Excel-Dateien anhand der GUID.
     Vergleicht definierte Master- und Measure-Spalten nur, wenn in beiden Dateien vorhanden.
+    GUID dient als Primary Key.
     """
     st.title("Excel Vergleichstool 📝")
     col1, col2 = st.columns(2)
@@ -50,12 +51,12 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
         "Material", "Typ", "Name", "Ergänzung"
     ]
-    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
+    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)" ]
 
     df = df_old.merge(
         df_new, on="GUID", how="outer", suffixes=("_old", "_new"), indicator=True
     )
-    # Bestimme Spalten zum Vergleichen
+    # Spalten zum Vergleichen bestimmen
     compare = [col for col in master_cols + measure_cols
                if f"{col}_old" in df.columns and f"{col}_new" in df.columns]
 
@@ -63,18 +64,27 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     diffs = [df[f"{c}_old"] != df[f"{c}_new"] for c in compare]
     df['__changed'] = np.logical_or.reduce(diffs) if diffs else False
 
-    # GridConfig
+    # Grid-Optionen
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column()
-    # Row style JS
-    js_row = JsCode("function(params) { return params.data.__changed ? {\"backgroundColor\": \"#D3D3D3\"} : {}; }")
-    gb.configure_grid_options(getRowStyle=js_row)
-    # Cell style JS für jede compare-Spalte
+
+    # Zeilen grau einfärben bei Änderungen
+    get_row_style = (
+        "function(params) {"
+        "return params.data.__changed ? {backgroundColor: '#D3D3D3'} : {};"
+        "}"
+    )
+    gb.configure_grid_options(getRowStyle=get_row_style)
+
+    # Zellen gelb einfärben für verglichene Spalten
     for col in compare:
-        js_cell = JsCode(
-            f"function(params) {{ return params.data['{col}_old'] !== params.data['{col}_new'] ? {{'backgroundColor':'yellow'}} : {{}}; }}"
+        js = (
+            "function(params) {"
+            f"return params.data['{col}_old'] !== params.data['{col}_new']"
+            " ? {backgroundColor: 'yellow'} : {};"
+            "}"
         )
-        gb.configure_column(f"{col}_new", cellStyleJs=js_cell)
+        gb.configure_column(f"{col}_new", cellStyleJs=js)
 
     grid_opts = gb.build()
 
