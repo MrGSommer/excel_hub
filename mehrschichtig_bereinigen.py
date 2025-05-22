@@ -3,17 +3,21 @@ import pandas as pd
 import io
 from excel_utils import clean_columns_values, rename_columns_to_standard
 
-def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=False):
+def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=False, drop_treppe_sub=False):
     master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain"]
     master_cols = [col for col in master_cols if col in df.columns]
-    
-    df["Mehrschichtiges Element"] = df.apply(lambda row: all(pd.isna(row[col]) for col in master_cols), axis=1)
 
+    # Flag mehrschichtig
+    df["Mehrschichtiges Element"] = df.apply(
+        lambda row: all(pd.isna(row[col]) for col in master_cols), axis=1
+    )
+
+    # Werte aus Mutterzeile füllen
     i = 0
     while i < len(df):
         if all(pd.notna(df.at[i, col]) for col in master_cols):
             j = i + 1
-            while j < len(df) and all(pd.isna(df.at[j, col]) for col in master_cols):
+            while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
                 for col in master_cols:
                     df.at[j, col] = df.at[i, col]
                 j += 1
@@ -21,167 +25,169 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
         else:
             i += 1
 
-    drop_indices = []
+    # Entfernen nicht klassifizierter Hauptelemente
+    drop_idx = []
     i = 0
     while i < len(df):
         if all(pd.notna(df.at[i, col]) for col in master_cols):
             j = i + 1
-            sub_indices = []
-            while j < len(df) and all(pd.isna(df.at[j, col]) for col in master_cols):
-                if df.at[j, "Mehrschichtiges Element"]:
-                    sub_indices.append(j)
+            sub_idxs = []
+            while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
+                sub_idxs.append(j)
                 j += 1
-            if not sub_indices and df.at[i, "eBKP-H"] == "Nicht klassifiziert":
-                drop_indices.append(i)
+            if not sub_idxs and df.at[i, "eBKP-H"] == "Nicht klassifiziert":
+                drop_idx.append(i)
             i = j
         else:
             i += 1
-    if drop_indices:
-        df.drop(index=drop_indices, inplace=True)
+    if drop_idx:
+        df.drop(index=drop_idx, inplace=True)
         df.reset_index(drop=True, inplace=True)
 
+    # Aufschlüsselung mehrschichtiger Elemente
     new_rows = []
-    drop_indices = []
+    drop_idx = []
     i = 0
     while i < len(df):
         if all(pd.notna(df.at[i, col]) for col in master_cols):
             j = i + 1
-            sub_indices = []
+            sub_idxs = []
             while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
-                sub_indices.append(j)
+                sub_idxs.append(j)
                 j += 1
 
-
-            # Aufschlüsselung mehrschichtiger Elemente
-            if sub_indices and match_sub_toggle and "eBKP-H Sub" in df.columns:
+            if sub_idxs and match_sub_toggle and "eBKP-H Sub" in df.columns:
                 mother_val = df.at[i, "eBKP-H"]
-                for idx in sub_indices:
+                for idx in sub_idxs:
                     sub_val = df.at[idx, "eBKP-H Sub"]
-                    if sub_val == mother_val:
-                        # nur die identische Sub-Zeile droppen
-                        drop_indices.append(idx)
+                    if drop_treppe_sub and "Treppe" in mother_val and sub_val == mother_val:
+                        # Treppe-Sub identisch: droppen
+                        drop_idx.append(idx)
                     else:
-                        # bei abweichender Sub-Zeile neue Hauptzeile mit Mutterinfos
+                        # Podest oder andere Sub: Mutterinfos übernehmen, neue Zeile
                         new = df.loc[idx].copy()
-                        # Mutterinfos übernehmen
                         for col in master_cols:
                             new[col] = df.at[i, col]
                         new["Mehrschichtiges Element"] = False
                         new_rows.append(new)
                 i = j
                 continue
-            
-            # ursprüngliches Verhalten, wenn Toggle aus oder keine Sub-Spalte
-            if sub_indices:
-                valid_sub_found = any(
+
+            # Standardfall ohne Sub-Toggle
+            if sub_idxs:
+                valid = any(
                     pd.notna(df.at[idx, "eBKP-H Sub"]) and
                     df.at[idx, "eBKP-H Sub"] not in ["Nicht klassifiziert", "", "Keine Zuordnung"]
-                    for idx in sub_indices
+                    for idx in sub_idxs
                 )
-                if valid_sub_found:
-                    drop_indices.append(i)
-                    for idx in sub_indices:
+                if valid:
+                    drop_idx.append(i)
+                    for idx in sub_idxs:
                         sub_val = df.at[idx, "eBKP-H Sub"]
                         if pd.notna(sub_val) and sub_val not in ["Nicht klassifiziert", "", "Keine Zuordnung"]:
                             new = df.loc[idx].copy()
                             new["Mehrschichtiges Element"] = True
                             new_rows.append(new)
                 else:
-                    drop_indices.extend(sub_indices)
+                    drop_idx.extend(sub_idxs)
                     df.at[i, "Mehrschichtiges Element"] = False
             else:
                 df.at[i, "Mehrschichtiges Element"] = False
             i = j
         else:
             i += 1
-            
-    if drop_indices:
-        df.drop(index=drop_indices, inplace=True)
+
+    if drop_idx:
+        df.drop(index=drop_idx, inplace=True)
         df.reset_index(drop=True, inplace=True)
     if new_rows:
         df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
 
+    # Sub-Spalten mappen, löschen
     for idx, row in df.iterrows():
-        if row["Mehrschichtiges Element"]:
+        if row.get("Mehrschichtiges Element", False):
             for col in df.columns:
                 if col.endswith(" Sub"):
-                    main_col = col.replace(" Sub", "")
+                    main = col.replace(" Sub", "")
                     if pd.notna(row[col]) and row[col] != "":
-                        df.at[idx, main_col] = row[col]
+                        df.at[idx, main] = row[col]
+    df.drop(columns=[c for c in df.columns if c.endswith(" Sub")], inplace=True, errors='ignore')
 
-    sub_cols = [col for col in df.columns if col.endswith(" Sub")]
-    df.drop(columns=sub_cols, inplace=True, errors="ignore")
+    # Entferne restliche Spalten
     for col in ["Einzelteile", "Farbe"]:
         if col in df.columns:
             df.drop(columns=col, inplace=True)
 
-    # 'oi' in "Unter Terrain" ⇒ None
+    # 'oi' bereinigen
     if "Unter Terrain" in df.columns:
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
 
     df = df[~df["eBKP-H"].isin(["Keine Zuordnung", "Nicht klassifiziert"])]
     df.reset_index(drop=True, inplace=True)
 
-    def remove_exact_duplicates(df):
-        indices_to_drop = []
-        for guid, group in df.groupby("GUID"):
-            if len(group) > 1 and all(n <= 1 for n in group.nunique().values):
-                indices_to_drop.extend(group.index.tolist()[1:])
-        return df.drop(index=indices_to_drop).reset_index(drop=True)
+    # Duplikate entfernen
+    def remove_exact_duplicates(d):
+        drop = []
+        for guid, grp in d.groupby("GUID"):
+            if len(grp) > 1 and all(n <= 1 for n in grp.nunique().values):
+                drop.extend(grp.index.tolist()[1:])
+        return d.drop(index=drop).reset_index(drop=True)
     df = remove_exact_duplicates(df)
 
+    # Final clean
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled, custom_chars)
-
     return df
+
 
 def app(supplement_name, delete_enabled, custom_chars):
     st.header("Mehrschichtig Bereinigen")
     st.markdown("""
     **Einleitung:**  
-    Bereinigt Excel-Dateien in mehreren Schritten:
-    1. Mehrschichtigkeits-Flag setzen.
-    2. Pre-Mapping der Masterspalten.
-    3. Entfernen nicht klassifizierter Hauptelemente.
-    4. Aufschlüsselung mehrschichtiger Elemente.
-    5. Mapping der Sub-Spalten.
-    6. Entfernen überflüssiger Spalten.
-    7. Entfernen exakter Duplikate basierend auf GUID.
-    8. Textersetzung in Mengenspalten.  
-    Neuer Schritt: Entfernt den Wert "oi" in "Unter Terrain".
-    """)
+    Bereinigt Excel-Dateien mehrschichtig mit optionalen Toggles.
+    """ )
 
     uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="bereinigen_file_uploader")
-    if uploaded_file:
-        try:
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
-        except Exception as e:
-            st.error(f"Fehler beim Einlesen: {e}")
-            return
+    if not uploaded_file:
+        return
 
-        st.subheader("Originale Daten (15 Zeilen)")
-        st.dataframe(df.head(15))
+    try:
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
+    except Exception as e:
+        st.error(f"Fehler beim Einlesen: {e}")
+        return
 
-        use_match_sub = st.checkbox(
-            "Sub-eBKP-H identisch zur Mutter ignorieren (Toggle)",
+    st.subheader("Originale Daten (15 Zeilen)")
+    st.dataframe(df.head(15))
+
+    use_match = st.checkbox("Sub-eBKP-H aufschlüsseln", value=False)
+    drop_treppe = st.checkbox(
+        "Treppe-Sub identisch zur Mutter droppen", value=False
+    )
+    if use_match:
+        drop_treppe = st.checkbox(
+            "Treppe-Sub identisch zur Mutter droppen",
             value=False
         )
-        with st.spinner("Daten werden bereinigt ..."):
-            df_clean = clean_dataframe(
-                df,
-                delete_enabled=delete_enabled,
-                custom_chars=custom_chars,
-                match_sub_toggle=use_match_sub
-            )
+    with st.spinner("Daten werden bereinigt ..."):
+        df_clean = clean_dataframe(
+            df,
+            delete_enabled=delete_enabled,
+            custom_chars=custom_chars,
+            match_sub_toggle=use_match,
+            drop_treppe_sub=drop_treppe
+        )
 
-        st.subheader("Bereinigte Daten (15 Zeilen)")
-        st.dataframe(df_clean.head(15))
+    st.subheader("Bereinigte Daten (15 Zeilen)")
+    st.dataframe(df_clean.head(15))
 
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_clean.to_excel(writer, index=False)
-        output.seek(0)
-        file_name = f"{supplement_name.strip() or 'default'}_bereinigt.xlsx"
-        st.download_button("Bereinigte Datei herunterladen", data=output,
-                           file_name=file_name,
-                           mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_clean.to_excel(writer, index=False)
+    output.seek(0)
+    file_name = f"{supplement_name.strip() or 'default'}_bereinigt.xlsx"
+    st.download_button(
+        "Bereinigte Datei herunterladen", data=output,
+        file_name=file_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
