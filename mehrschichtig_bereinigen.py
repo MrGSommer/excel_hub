@@ -60,18 +60,20 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
                 mother_val = df.at[i, "eBKP-H"]
                 for idx in sub_idxs:
                     sub_val = df.at[idx, "eBKP-H Sub"]
-                    if drop_treppe_sub and "Treppe" in mother_val and sub_val == mother_val:
-                        # Treppe-Sub identisch: droppen
+                    # 1) Treppe-Subs droppen, Mutterzeile bleibt erhalten
+                    if "Treppe" in str(mother_val) and "Treppe" in str(sub_val):
                         drop_idx.append(idx)
-                    else:
-                        # Podest oder andere Sub: Mutterinfos übernehmen, neue Zeile
+                    # 2) alle anderen klassifizierten Subs (z.B. Podest) als neue Mutterzeile übernehmen
+                    elif pd.notna(sub_val) and sub_val not in ["Nicht klassifiziert", "", "Keine Zuordnung"]:
                         new = df.loc[idx].copy()
                         for col in master_cols:
                             new[col] = df.at[i, col]
                         new["Mehrschichtiges Element"] = False
                         new_rows.append(new)
+                # Weiter mit der nächsten Mutterzeile
                 i = j
                 continue
+
 
             # Standardfall ohne Sub-Toggle
             if sub_idxs:
