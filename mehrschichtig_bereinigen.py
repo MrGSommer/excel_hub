@@ -165,10 +165,7 @@ def app(supplement_name, delete_enabled, custom_chars):
         "Treppe-Sub identisch zur Mutter droppen", value=False
     )
     if use_match:
-        drop_treppe = st.checkbox(
-            "Treppe-Sub identisch zur Mutter droppen",
-            value=False
-        )
+        drop_treppe
     with st.spinner("Daten werden bereinigt ..."):
         df_clean = clean_dataframe(
             df,
