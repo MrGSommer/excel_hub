@@ -63,7 +63,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
-        "Material", "Typ", "Name", "Ergänzung"
+        "Material", "Typ", "Name", "Ergänzung", "ING"
     ]
     measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
