@@ -99,7 +99,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     st.markdown("### Hierarchie der Hauptmengenspalten festlegen")
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
-        "Unter Terrain", "eBKP-H", "Umbaustatus", "Material", "Anzahl", "GUID"
+        "Unter Terrain", "eBKP-H", "Umbaustatus", "Material", "ING", "Anzahl", "GUID"
     ]
     for measure in state.hierarchies_values:
         used = [
