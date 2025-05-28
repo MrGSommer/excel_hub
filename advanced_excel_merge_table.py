@@ -98,10 +98,10 @@ def app(supplement_name, delete_enabled, custom_chars):
             )
         else:
             st.success("Keine GUID-Duplikate gefunden.")
-            st.dataframe(df)
+            st.dataframe(df.head(15))
     else:
         st.info("Spalte 'GUID' nicht gefunden.")
-        st.dataframe(df)
+        st.dataframe(df.head(15))
 
     # 5) Download mit Markierung im Excel
     out = io.BytesIO()
