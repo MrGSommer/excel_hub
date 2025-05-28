@@ -143,6 +143,14 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
 
 
 def app(supplement_name, delete_enabled, custom_chars):
+
+    state = st.session_state
+    supplement = supplement_name or (
+        state.get("selected_sheet_values")
+        or (state.uploaded_file_values.name.rsplit(".", 1)[0]
+            if state.get("uploaded_file_values") else "")
+    )
+    
     st.header("Mehrschichtig Bereinigen")
     st.markdown("""
     **Einleitung:**  
