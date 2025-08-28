@@ -183,10 +183,11 @@ def app(supplement_name, delete_enabled, custom_chars):
         st.error(f"Fehler beim Einlesen: {e}")
         return
 
+    # --- Schritt 1: Rohdaten zeigen ---
     st.subheader("Originale Daten (15 Zeilen)")
     st.dataframe(df.head(15))
 
-    # --- Konfigurator UI ---
+    # --- Schritt 2: Konfigurator ---
     st.markdown("### Konfigurator")
 
     options = ["Auto", "Mutter", "Sub"]
@@ -203,25 +204,26 @@ def app(supplement_name, delete_enabled, custom_chars):
 
     config = {}
     for group in sorted(df[group_col].dropna().unique()):
-        st.subheader(f"{group_col} = {group}")
-        config[group] = {}
-        for col in df.columns:
-            if col == "GUID":
-                config[group][col] = "Sub"
-                continue
-            default = st.session_state.config_sources.get((group, col), "Auto")
-            choice = st.selectbox(
-                f"{col} übernehmen von:",
-                options,
-                index=options.index(default),
-                key=f"cfg_{group}_{col}"
-            )
-            config[group][col] = choice
-            st.session_state.config_sources[(group, col)] = choice
+        with st.expander(f"{group_col} = {group}"):
+            config[group] = {}
+            for col in df.columns:
+                if col == "GUID":
+                    config[group][col] = "Sub"  # GUID bleibt Sub
+                    continue
+                default = st.session_state.config_sources.get((group, col), "Auto")
+                choice = st.selectbox(
+                    f"{col} übernehmen von:",
+                    options,
+                    index=options.index(default),
+                    key=f"cfg_{group}_{col}"
+                )
+                config[group][col] = choice
+                st.session_state.config_sources[(group, col)] = choice
 
     use_match = st.checkbox("Sub-eBKP-H aufschlüsseln", value=False)
     drop_treppe = st.checkbox("Treppe-Sub identisch zur Mutter droppen", value=False)
 
+    # --- Schritt 3: Verarbeitung manuell starten ---
     if st.button("Verarbeitung starten"):
         with st.spinner("Daten werden bereinigt ..."):
             df_clean = clean_dataframe(
