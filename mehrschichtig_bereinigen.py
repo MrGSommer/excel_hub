@@ -87,7 +87,6 @@ def clean_dataframe(df: pd.DataFrame,
                 sub_idxs.append(j)
                 j += 1
 
-            # Optionaler Spezialfall über eBKP-H Sub
             if sub_idxs and match_sub_toggle and "eBKP-H Sub" in df.columns:
                 mother_val = df.at[i, "eBKP-H"] if "eBKP-H" in df.columns else pd.NA
                 for idx in sub_idxs:
@@ -159,11 +158,9 @@ def clean_dataframe(df: pd.DataFrame,
                         choice = grp_cfg.get(base, "Sub")  # Default: Sub
                         sub_col = f"{base} Sub"
                         if choice == "Mutter":
-                            # Wert von Mutter ins Basisfeld der Sub-Zeile
                             if base in df.columns:
                                 df.at[idx, base] = df.at[i, base]
                         else:  # "Sub"
-                            # Sub-Wert ins Basisfeld übernehmen, falls vorhanden
                             if sub_col in df.columns and has_value(df.at[idx, sub_col]):
                                 df.at[idx, base] = df.at[idx, sub_col]
                 i = j
@@ -245,7 +242,6 @@ def app(supplement_name, delete_enabled, custom_chars):
     # Konfigurator (kompakt via Data Editor)
     # Nur Basisfelder, die eine "... Sub"-Spalte haben
     # -----------------------------
-    options = ["Mutter", "Sub"]  # bewusst nur diese beiden
     pair_bases = sorted({
         base for col in df.columns
         if col.endswith(" Sub") and (base := col[:-4]) in df.columns and base != "GUID"
@@ -255,6 +251,8 @@ def app(supplement_name, delete_enabled, custom_chars):
         st.info("Keine konfigurierbaren Paare gefunden (keine '... Sub'-Spalten).")
         pair_bases = []
 
+    # Gruppierung
+    options = ["Mutter", "Sub"]
     group_col = st.selectbox(
         "Spalte für Gruppierung wählen",
         [c for c in df.columns if c != "GUID"],
@@ -264,16 +262,42 @@ def app(supplement_name, delete_enabled, custom_chars):
 
     if "config_sources" not in st.session_state:
         st.session_state.config_sources = {}
+    if "global_source_default" not in st.session_state:
+        st.session_state.global_source_default = "Sub"
 
-    config: dict[str, dict[str, str]] = {}
+    # -----------------------------
+    # Globale Einstellung (oberste Steuerung)
+    # -----------------------------
+    st.markdown("### Globale Einstellung")
+    prev_global = st.session_state.global_source_default
+    global_choice = st.selectbox(
+        "Globale Quelle für alle Paare",
+        options,
+        index=options.index(prev_global),
+        key="global_source_default_select"
+    )
+
+    # Wenn globale Auswahl geändert wurde -> auf alle Gruppen/Felder anwenden (überschreiben)
+    if global_choice != prev_global or st.button("Globale Auswahl auf alle Gruppen anwenden"):
+        st.session_state.global_source_default = global_choice
+        # Gruppenwerte bestimmen
+        groups_all = sorted(df[group_col].dropna().unique()) if group_col in df.columns else []
+        for g in groups_all:
+            for b in pair_bases:
+                st.session_state.config_sources[(g, b)] = global_choice
+        st.success("Globale Auswahl wurde auf alle Gruppen/Felder angewendet.")
+
+    # Gruppen-Editoren
+    st.markdown("### Gruppen-Konfigurator (Abweichungen von der globalen Einstellung)")
     groups = sorted(df[group_col].dropna().unique()) if group_col in df.columns else []
-
     cols_layout = st.columns(2) if len(groups) > 1 else [st]
 
+    config: dict[str, dict[str, str]] = {}
     for gi, group in enumerate(groups):
         with cols_layout[gi % 2].expander(f"{group_col} = {group}", expanded=False):
             if pair_bases:
-                defaults = [st.session_state.config_sources.get((group, b), "Sub") for b in pair_bases]
+                defaults = [st.session_state.config_sources.get((group, b), st.session_state.global_source_default)
+                            for b in pair_bases]
                 cfg_df = pd.DataFrame({"Feld": pair_bases, "Quelle": defaults})
                 cfg_df = st.data_editor(
                     cfg_df,
