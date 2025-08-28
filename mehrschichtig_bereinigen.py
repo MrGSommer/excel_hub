@@ -146,7 +146,7 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
     return df
 
 
-def app(supplement_name, delete_enabled, custom_chars, convert_quantity_columns):
+def app(supplement_name, delete_enabled, custom_chars):
 
     state = st.session_state
     supplement = supplement_name or (
