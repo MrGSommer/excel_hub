@@ -204,21 +204,35 @@ def app(supplement_name, delete_enabled, custom_chars):
 
     config = {}
     for group in sorted(df[group_col].dropna().unique()):
-        with st.expander(f"{group_col} = {group}"):
-            config[group] = {}
-            for col in df.columns:
-                if col == "GUID":
-                    config[group][col] = "Sub"  # GUID bleibt Sub
-                    continue
-                default = st.session_state.config_sources.get((group, col), "Auto")
-                choice = st.selectbox(
-                    f"{col} übernehmen von:",
-                    options,
-                    index=options.index(default),
-                    key=f"cfg_{group}_{col}"
-                )
-                config[group][col] = choice
-                st.session_state.config_sources[(group, col)] = choice
+        st.subheader(f"{group_col} = {group}")
+
+        # Kopfzeile für Matrix
+        header_cols = st.columns(len(options) + 1)
+        header_cols[0].markdown("**Spalte**")
+        for i, opt in enumerate(options):
+            header_cols[i+1].markdown(f"**{opt}**")
+
+        config[group] = {}
+        for col in df.columns:
+            if col == "GUID":
+                config[group][col] = "Sub"
+                continue
+
+            current = st.session_state.config_sources.get((group, col), "Auto")
+
+            row_cols = st.columns(len(options) + 1)
+            row_cols[0].write(col)
+
+            for i, opt in enumerate(options):
+                checked = (current == opt)
+                if row_cols[i+1].checkbox(
+                    f"{group}_{col}_{opt}", value=checked, key=f"cfg_{group}_{col}_{opt}"
+                ):
+                    st.session_state.config_sources[(group, col)] = opt
+                    config[group][col] = opt
+            # Falls keiner geklickt → zuletzt gespeichertes setzen
+            if (group, col) not in config:
+                config[group][col] = st.session_state.config_sources.get((group, col), "Auto")
 
     use_match = st.checkbox("Sub-eBKP-H aufschlüsseln", value=False)
     drop_treppe = st.checkbox("Treppe-Sub identisch zur Mutter droppen", value=False)
