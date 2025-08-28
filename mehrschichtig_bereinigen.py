@@ -187,56 +187,57 @@ def app(supplement_name, delete_enabled, custom_chars):
     st.subheader("Originale Daten (15 Zeilen)")
     st.dataframe(df.head(15))
 
+    # --- Schritt 2: Kompakter Konfigurator (Data Editor) ---
     st.markdown("### Konfigurator")
 
     options = ["Auto", "Mutter", "Sub"]
-    
+
     group_col = st.selectbox(
         "Spalte für Gruppierung wählen",
         [c for c in df.columns if c != "GUID"],
         index=0,
         key="group_col_select"
     )
-    
+
     if "config_sources" not in st.session_state:
         st.session_state.config_sources = {}
-    
+
     config = {}
     groups = sorted(df[group_col].dropna().unique())
-    
-    # 2-spaltiges Layout für Gruppen (bessere Ausnutzung der Breite)
+
     cols_layout = st.columns(2) if len(groups) > 1 else [st]
-    
+
     for gi, group in enumerate(groups):
         with cols_layout[gi % 2].expander(f"{group_col} = {group}", expanded=False):
-            # Zeilen = tatsächliche Spalten in der Datei (ohne GUID)
             cols_for_cfg = [c for c in df.columns if c != "GUID"]
             defaults = [st.session_state.config_sources.get((group, c), "Auto") for c in cols_for_cfg]
-    
+
             cfg_df = pd.DataFrame({"Spalte": cols_for_cfg, "Quelle": defaults})
-    
+
             cfg_df = st.data_editor(
                 cfg_df,
                 num_rows="fixed",
-                disabled=["Spalte"],  # Spaltennamen nicht änderbar
+                disabled=["Spalte"],
                 use_container_width=True,
                 column_config={
                     "Spalte": st.column_config.TextColumn("Spalte"),
                     "Quelle": st.column_config.SelectboxColumn(
                         "Quelle", options=options, help="Wert aus Mutter oder Sub übernehmen (oder Auto = Standardlogik)"
                     )
-                ],
+                },
                 key=f"cfg_table_{group}"
             )
-    
-            # in Session & config zurückschreiben
+
             choices = dict(zip(cfg_df["Spalte"], cfg_df["Quelle"]))
             for c, v in choices.items():
                 st.session_state.config_sources[(group, c)] = v
             config[group] = choices
-    
-    # Hinweis: GUID bleibt immer aus der jeweiligen Zeile (Sub), keine Auswahl nötig
+
     st.caption("Hinweis: *GUID wird immer aus der jeweiligen Zeile übernommen (keine Überschreibung).*")
+
+    use_match = st.checkbox("Sub-eBKP-H aufschlüsseln", value=False)
+    drop_treppe = st.checkbox("Treppe-Sub identisch zur Mutter droppen", value=False)
+
 
     # --- Schritt 3: Verarbeitung manuell starten ---
     if st.button("Verarbeitung starten"):
