@@ -155,14 +155,15 @@ def clean_dataframe(df: pd.DataFrame,
                 # Für jede Sub-Zeile die gewählten Quellen setzen
                 for idx in sub_idxs:
                     for base in sub_pairs:
-                        choice = grp_cfg.get(base, "Sub")  # Default: Sub
-                        sub_col = f"{base} Sub"
+                        choice = grp_cfg.get(base, st.session_state.global_sources_per_pair.get(base, "Auto"))
                         if choice == "Mutter":
-                            if base in df.columns:
-                                df.at[idx, base] = df.at[i, base]
-                        else:  # "Sub"
+                            df.at[idx, base] = df.at[i, base]
+                        elif choice == "Sub":
+                            sub_col = f"{base} Sub"
                             if sub_col in df.columns and has_value(df.at[idx, sub_col]):
                                 df.at[idx, base] = df.at[idx, sub_col]
+                        # Auto => Standardlogik unverändert
+
                 i = j
             else:
                 i += 1
