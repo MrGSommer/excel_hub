@@ -21,7 +21,7 @@ def convert_size_to_m(x):
         return pd.NA
     s = str(x).strip()
     m = re.match(
-        r"^([\d\.,]+)\s*(mm2|cm2|dm2|m2|mm3|cm3|dm3|m3|mm|cm|dm|m)$",
+        r"^([\d\.,]+(?:[eE][\+\-]?\d+)?)\s*(mm2|cm2|dm2|m2|mm3|cm3|dm3|m3|mm|cm|dm|m)$",
         s,
         flags=re.IGNORECASE
     )
@@ -39,15 +39,27 @@ def convert_size_to_m(x):
         factor = {"mm": 0.001, "cm": 0.01, "dm": 0.1, "m": 1}[base] ** exp
         return num * factor
 
-    # Fallback: Nicht-numerische Zeichen entfernen
-    cleaned = re.sub(r"[^\d\.,-]", "", s)
+    # 1) Einheit hinten (falls vorhanden) abtrennen und Dezimal vereinheitlichen
+    s1 = s.replace("\xa0", " ").strip()
+    s1 = re.sub(r"\s*(mm2|cm2|dm2|m2|mm3|cm3|dm3|m3|mm|cm|dm|m)\s*$", "", s1, flags=re.IGNORECASE)
+    s1 = s1.replace("’", "").replace("'", "").replace(" ", "").replace(",", ".")
+    
+    # 2) Direktversuch: erlaubt auch 2.999E-4
     try:
-        val = float(cleaned.replace(",", "."))
-        # optional: gleich 0 ⇒ None
+        val = float(s1)
         return pd.NA if val == 0 else val
-    except:
+    except Exception:
+        pass
+    
+    # 3) Harte Bereinigung: nur Ziffern, Punkt, Vorzeichen und Exponentenzeichen
+    cleaned = re.sub(r"[^0-9eE\.\+\-]", "", s1)
+    try:
+        val = float(cleaned)
+        return pd.NA if val == 0 else val
+    except Exception:
         st.warning(f"Ungültiges Format in Zelle: '{s}'")
         return pd.NA
+
 
 
 def convert_quantity_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -72,27 +84,35 @@ def convert_quantity_columns(df: pd.DataFrame) -> pd.DataFrame:
         s = str(x).strip()
         if s == "":
             return pd.NA
-        # remove common thousand separators & spaces
+    
+        # Tausenderzeichen entfernen, Dezimal vereinheitlichen
         s = s.replace("\xa0", "").replace(" ", "").replace("’", "").replace("'", "")
-        # decide decimal separator if both present
         if "," in s and "." in s:
             if s.rfind(",") > s.rfind("."):
-                # decimal is comma -> remove dots (thousands), comma -> dot
-                s = s.replace(".", "")
-                s = s.replace(",", ".")
+                s = s.replace(".", "").replace(",", ".")
             else:
-                # decimal is dot -> remove commas (thousands)
                 s = s.replace(",", "")
         else:
-            # only comma -> treat as decimal comma
             if "," in s:
                 s = s.replace(",", ".")
-        # keep only digits, leading minus and one dot
-        s = re.sub(r"[^0-9\.\-]", "", s)
+    
+        # Einheiten am Ende entfernen (verhindert 'E-43' durch 'm3')
+        s = re.sub(r"(mm2|cm2|dm2|m2|mm3|cm3|dm3|m3|mm|cm|dm|m|qm|cbm|lm|lfm|kg|t|stk|stueck|stück|l)$",
+                   "", s, flags=re.IGNORECASE)
+    
+        # Direktversuch: unterstützt 1.23E-4
         try:
-            return float(s) if s not in ("", "-", ".") else pd.NA
+            return float(s)
+        except ValueError:
+            pass
+    
+        # Fallback: harte Bereinigung, Exponenten zulassen
+        s = re.sub(r"[^0-9eE\.\+\-]", "", s)
+        try:
+            return float(s) if s not in ("", "-", ".", "+", "e", "E") else pd.NA
         except ValueError:
             return pd.NA
+
 
     target_cols = [c for c in df.columns if unit_regex.search(str(c).lower())]
     for c in target_cols:
