@@ -4,7 +4,7 @@ import io
 import openpyxl
 from collections import Counter
 from openpyxl.styles import PatternFill
-from excel_utils import clean_columns_values, rename_columns_to_standard
+from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns  
 
 def app(supplement_name, delete_enabled, custom_chars):
     st.header("Merge to Table")
@@ -104,9 +104,10 @@ def app(supplement_name, delete_enabled, custom_chars):
         st.dataframe(df.head(15))
 
     # 5) Download mit Markierung im Excel
+    df_export = convert_quantity_columns(df.copy())
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name=supplement_name or "Merged")
+        df_export.to_excel(writer, index=False, sheet_name=supplement_name or "Merged")
         wb = writer.book
         ws = wb[supplement_name or "Merged"]
 
