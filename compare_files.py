@@ -3,7 +3,8 @@ import pandas as pd
 import numpy as np
 from excel_utils import (
     detect_header_row,
-    prepend_values_cleaning
+    prepend_values_cleaning,
+    convert_quantity_columns
 )
 import io
 import logging
@@ -97,8 +98,9 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             engine='xlsxwriter',
             engine_kwargs={'options': {'nan_inf_to_errors': True}}
         )
+        df_export = convert_quantity_columns(df_new.copy())
         with writer:
-            df_new.to_excel(writer, sheet_name=sheet, index=False)
+            df_export.to_excel(writer, sheet_name=sheet, index=False)
             workbook = writer.book
             worksheet = writer.sheets[sheet]
 
