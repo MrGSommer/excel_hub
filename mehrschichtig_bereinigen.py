@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 import io
-from excel_utils import clean_columns_values, rename_columns_to_standard
+import re
+from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns
+
+
+
 
 def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=False, drop_treppe_sub=False):
     master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain"]
@@ -142,7 +146,7 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
     return df
 
 
-def app(supplement_name, delete_enabled, custom_chars):
+def app(supplement_name, delete_enabled, custom_chars, convert_quantity_columns):
 
     state = st.session_state
     supplement = supplement_name or (
@@ -189,8 +193,9 @@ def app(supplement_name, delete_enabled, custom_chars):
     st.dataframe(df_clean.head(15))
 
     output = io.BytesIO()
+    df_export = convert_quantity_columns(df_clean.copy())
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_clean.to_excel(writer, index=False)
+        df_export.to_excel(writer, index=False)
     output.seek(0)
     file_name = f"{supplement_name.strip() or 'default'}_bereinigt.xlsx"
     st.download_button(
