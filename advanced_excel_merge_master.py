@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 import openpyxl
-from excel_utils import clean_columns_values, rename_columns_to_standard
+from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns
 
 def clean_value(value, delete_enabled, custom_chars):
     if isinstance(value, str):
@@ -79,9 +79,10 @@ def app(supplement_name, delete_enabled, custom_chars):
     df_master = rename_columns_to_standard(df_master)
     df_master = clean_columns_values(df_master, delete_enabled, custom_chars)
 
+    df_export = convert_quantity_columns(df_master.copy())
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_master.to_excel(writer, index=False, sheet_name="MasterTable")
+        df_export.to_excel(writer, index=False, sheet_name="MasterTable")
     output.seek(0)
 
     st.success("Master Table Merge abgeschlossen.")
