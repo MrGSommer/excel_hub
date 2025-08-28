@@ -50,6 +50,57 @@ def convert_size_to_m(x):
         return pd.NA
 
 
+def convert_quantity_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Findet typische Mengenspalten (m, m2, m3, Stk., Stück, kg, lm, lfm, qm, cbm, cm, dm, Menge, Anzahl)
+    anhand des Spaltennamens und konvertiert deren Werte robust zu float.
+    Handhabt Tausendertrennzeichen (., ', Leerzeichen) und Dezimaltrennzeichen (., ,).
+    """
+    unit_patterns = [
+        r"\bmenge\b", r"\banzahl\b",
+        r"\bm\b", r"\bm2\b", r"\bm3\b",
+        r"\bqm\b", r"\bcbm\b", r"\blm\b", r"\blfm\b",
+        r"\bkg\b", r"\bt\b",
+        r"\bcm\b", r"\bdm\b",
+        r"\bstk\b", r"\bstueck\b", r"\bstück\b"
+    ]
+    unit_regex = re.compile("|".join(unit_patterns), flags=re.IGNORECASE)
+
+    def parse_num(x):
+        if pd.isna(x):
+            return pd.NA
+        s = str(x).strip()
+        if s == "":
+            return pd.NA
+        # remove common thousand separators & spaces
+        s = s.replace("\xa0", "").replace(" ", "").replace("’", "").replace("'", "")
+        # decide decimal separator if both present
+        if "," in s and "." in s:
+            if s.rfind(",") > s.rfind("."):
+                # decimal is comma -> remove dots (thousands), comma -> dot
+                s = s.replace(".", "")
+                s = s.replace(",", ".")
+            else:
+                # decimal is dot -> remove commas (thousands)
+                s = s.replace(",", "")
+        else:
+            # only comma -> treat as decimal comma
+            if "," in s:
+                s = s.replace(",", ".")
+        # keep only digits, leading minus and one dot
+        s = re.sub(r"[^0-9\.\-]", "", s)
+        try:
+            return float(s) if s not in ("", "-", ".") else pd.NA
+        except ValueError:
+            return pd.NA
+
+    target_cols = [c for c in df.columns if unit_regex.search(str(c).lower())]
+    for c in target_cols:
+        df[c] = df[c].map(parse_num).astype("Float64")
+    return df
+
+
+
 def clean_columns_values(df: pd.DataFrame,
                          delete_enabled: bool = False,
                          custom_chars: str = "") -> pd.DataFrame:
