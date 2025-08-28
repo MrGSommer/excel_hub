@@ -150,31 +150,40 @@ def clean_dataframe(df: pd.DataFrame,
                 while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
                     sub_idxs.append(j)
                     j += 1
+    
                 grp = df.at[i, group_col]
                 grp_cfg = config.get(grp, {})
+    
                 # Für jede Sub-Zeile die gewählten Quellen setzen
                 for idx in sub_idxs:
                     for base in sub_pairs:
                         choice = grp_cfg.get(base, st.session_state.global_sources_per_pair.get(base, "Auto"))
+                        sub_col = f"{base} Sub"
+    
                         if choice == "Mutter":
+                            # Mutterwert in Basis-Feld der Sub schreiben
                             df.at[idx, base] = df.at[i, base]
                         elif choice == "Sub":
-                            sub_col = f"{base} Sub"
+                            # Sub-Wert in Basis-Feld der Sub schreiben (falls vorhanden)
                             if sub_col in df.columns and has_value(df.at[idx, sub_col]):
                                 df.at[idx, base] = df.at[idx, sub_col]
-                        # Auto => Standardlogik unverändert
-
+                        else:
+                            # AUTO: Standardverhalten -> wie Fallback: Sub-Wert, falls vorhanden
+                            if sub_col in df.columns and has_value(df.at[idx, sub_col]):
+                                df.at[idx, base] = df.at[idx, sub_col]
+    
                 i = j
             else:
                 i += 1
     else:
-        # Fallback ohne Konfigurator: Standard – Sub-Werte ins Basisfeld, wenn vorhanden
+        # Fallback ohne Konfigurator: Sub-Werte ins Basisfeld, wenn vorhanden
         for idx, row in df.iterrows():
             if row.get("Mehrschichtiges Element", False):
                 for base in sub_pairs:
                     sub_col = f"{base} Sub"
                     if sub_col in df.columns and has_value(row[sub_col]):
                         df.at[idx, base] = row[sub_col]
+
 
     # -----------------------------
     # 5) Sub-Spalten jetzt entfernen (nach angewandter Entscheidung)
@@ -238,7 +247,17 @@ def app(supplement_name, delete_enabled, custom_chars):
 
     st.subheader("Originale Daten (15 Zeilen)")
     st.dataframe(df.head(15), use_container_width=True)
-
+    # Gruppierungsspalte wählen (wird unten für Groups benutzt)
+    group_col = st.selectbox(
+        "Spalte für Gruppierung wählen",
+        [c for c in df.columns if c != "GUID"],
+        index=0,
+        key="group_col_select"
+    )
+    
+    # Session-State vorbereiten
+    if "config_sources" not in st.session_state:
+        st.session_state.config_sources = {}
     # -----------------------------
     # Konfigurator (kompakt via Data Editor)
     # Nur Basisfelder, die eine "... Sub"-Spalte haben
@@ -290,28 +309,29 @@ def app(supplement_name, delete_enabled, custom_chars):
     
     for gi, group in enumerate(groups):
         with cols_layout[gi % 2].expander(f"{group_col} = {group}", expanded=False):
-            defaults = [
-                st.session_state.config_sources.get((group, b), st.session_state.global_sources_per_pair[b])
-                for b in pair_bases
-            ]
-            cfg_df = pd.DataFrame({"Feld": pair_bases, "Quelle": defaults})
-            cfg_df = st.data_editor(
-                cfg_df,
-                num_rows="fixed",
-                disabled=["Feld"],
-                use_container_width=True,
-                column_config={
-                    "Feld": st.column_config.TextColumn("Feld (Basis)"),
-                    "Quelle": st.column_config.SelectboxColumn("Quelle", options=options)
-                },
-                key=f"cfg_table_{group}"
-            )
-            choices = dict(zip(cfg_df["Feld"], cfg_df["Quelle"]))
-            for c, v in choices.items():
-                st.session_state.config_sources[(group, c)] = v
-            config[group] = choices          
-          else:
-              st.write("Keine Paare mit ' Sub' vorhanden.")
+            if pair_bases:
+                defaults = [
+                    st.session_state.config_sources.get((group, b), st.session_state.global_sources_per_pair[b])
+                    for b in pair_bases
+                ]
+                cfg_df = pd.DataFrame({"Feld": pair_bases, "Quelle": defaults})
+                cfg_df = st.data_editor(
+                    cfg_df,
+                    num_rows="fixed",
+                    disabled=["Feld"],
+                    use_container_width=True,
+                    column_config={
+                        "Feld": st.column_config.TextColumn("Feld (Basis)"),
+                        "Quelle": st.column_config.SelectboxColumn("Quelle", options=options)
+                    },
+                    key=f"cfg_table_{group}"
+                )
+                choices = dict(zip(cfg_df["Feld"], cfg_df["Quelle"]))
+                for c, v in choices.items():
+                    st.session_state.config_sources[(group, c)] = v
+                config[group] = choices
+            else:
+                st.write("Keine Paare mit ' Sub' vorhanden.")
 
     st.caption("Hinweis: *GUID bleibt immer aus der jeweiligen Zeile. Sie wird nie überschrieben.*")
 
