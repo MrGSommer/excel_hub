@@ -5,9 +5,8 @@ import re
 from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns
 
 
-
-
-def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=False, drop_treppe_sub=False):
+def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=False, drop_treppe_sub=False,
+                    config=None, group_col=None):
     master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain"]
     master_cols = [col for col in master_cols if col in df.columns]
 
@@ -74,10 +73,8 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
                             new[col] = df.at[i, col]
                         new["Mehrschichtiges Element"] = False
                         new_rows.append(new)
-                # Weiter mit der nächsten Mutterzeile
                 i = j
                 continue
-
 
             # Standardfall ohne Sub-Toggle
             if sub_idxs:
@@ -140,6 +137,26 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
         return d.drop(index=drop).reset_index(drop=True)
     df = remove_exact_duplicates(df)
 
+    # Konfigurator anwenden
+    if config and group_col:
+        for i in range(len(df)):
+            if not df.at[i, "Mehrschichtiges Element"]:
+                j = i + 1
+                sub_idxs = []
+                while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
+                    sub_idxs.append(j)
+                    j += 1
+                group_val = df.at[i, group_col]
+                for idx in sub_idxs:
+                    for col, source in config.get(group_val, {}).items():
+                        if col == "GUID":
+                            continue
+                        if source == "Mutter":
+                            df.at[idx, col] = df.at[i, col]
+                        elif source == "Sub":
+                            pass
+                        # Auto -> Standardverhalten
+
     # Final clean
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled, custom_chars)
@@ -147,19 +164,14 @@ def clean_dataframe(df, delete_enabled=False, custom_chars="", match_sub_toggle=
 
 
 def app(supplement_name, delete_enabled, custom_chars):
-
-    state = st.session_state
-    supplement = supplement_name or (
-        state.get("selected_sheet_values")
-        or (state.uploaded_file_values.name.rsplit(".", 1)[0]
-            if state.get("uploaded_file_values") else "")
-    )
-    
     st.header("Mehrschichtig Bereinigen")
     st.markdown("""
     **Einleitung:**  
-    Bereinigt Excel-Dateien mehrschichtig mit optionalen Toggles.
-    """ )
+    Excel-Dateien mit mehrschichtigen Elementen bereinigen.  
+    1. Datei hochladen  
+    2. Konfiguration vornehmen  
+    3. Verarbeitung starten  
+    """)
 
     uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="bereinigen_file_uploader")
     if not uploaded_file:
@@ -174,32 +186,65 @@ def app(supplement_name, delete_enabled, custom_chars):
     st.subheader("Originale Daten (15 Zeilen)")
     st.dataframe(df.head(15))
 
+    # --- Konfigurator UI ---
+    st.markdown("### Konfigurator")
+
+    options = ["Auto", "Mutter", "Sub"]
+
+    group_col = st.selectbox(
+        "Spalte für Gruppierung wählen",
+        [c for c in df.columns if c != "GUID"],
+        index=0,
+        key="group_col_select"
+    )
+
+    if "config_sources" not in st.session_state:
+        st.session_state.config_sources = {}
+
+    config = {}
+    for group in sorted(df[group_col].dropna().unique()):
+        st.subheader(f"{group_col} = {group}")
+        config[group] = {}
+        for col in df.columns:
+            if col == "GUID":
+                config[group][col] = "Sub"
+                continue
+            default = st.session_state.config_sources.get((group, col), "Auto")
+            choice = st.selectbox(
+                f"{col} übernehmen von:",
+                options,
+                index=options.index(default),
+                key=f"cfg_{group}_{col}"
+            )
+            config[group][col] = choice
+            st.session_state.config_sources[(group, col)] = choice
+
     use_match = st.checkbox("Sub-eBKP-H aufschlüsseln", value=False)
-    drop_treppe = st.checkbox(
-        "Treppe-Sub identisch zur Mutter droppen", value=False
-    )
-    if use_match:
-        drop_treppe
-    with st.spinner("Daten werden bereinigt ..."):
-        df_clean = clean_dataframe(
-            df,
-            delete_enabled=delete_enabled,
-            custom_chars=custom_chars,
-            match_sub_toggle=use_match,
-            drop_treppe_sub=drop_treppe
+    drop_treppe = st.checkbox("Treppe-Sub identisch zur Mutter droppen", value=False)
+
+    if st.button("Verarbeitung starten"):
+        with st.spinner("Daten werden bereinigt ..."):
+            df_clean = clean_dataframe(
+                df,
+                delete_enabled=delete_enabled,
+                custom_chars=custom_chars,
+                match_sub_toggle=use_match,
+                drop_treppe_sub=drop_treppe,
+                config=config,
+                group_col=group_col
+            )
+
+        st.subheader("Bereinigte Daten (15 Zeilen)")
+        st.dataframe(df_clean.head(15))
+
+        output = io.BytesIO()
+        df_export = convert_quantity_columns(df_clean.copy())
+        with pd.ExcelWriter(output, engine="openpyxl") as writer:
+            df_export.to_excel(writer, index=False)
+        output.seek(0)
+        file_name = f"{supplement_name.strip() or 'default'}_bereinigt.xlsx"
+        st.download_button(
+            "Bereinigte Datei herunterladen", data=output,
+            file_name=file_name,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-
-    st.subheader("Bereinigte Daten (15 Zeilen)")
-    st.dataframe(df_clean.head(15))
-
-    output = io.BytesIO()
-    df_export = convert_quantity_columns(df_clean.copy())
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df_export.to_excel(writer, index=False)
-    output.seek(0)
-    file_name = f"{supplement_name.strip() or 'default'}_bereinigt.xlsx"
-    st.download_button(
-        "Bereinigte Datei herunterladen", data=output,
-        file_name=file_name,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
