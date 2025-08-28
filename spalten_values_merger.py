@@ -6,7 +6,8 @@ from excel_utils import (
     apply_preset_hierarchy,
     prepend_values_cleaning,
     rename_columns_to_standard,
-    convert_size_to_m
+    convert_size_to_m,
+    convert_quantity_columns
 )
 
 def app(supplement_name, delete_enabled, custom_chars):
@@ -197,8 +198,9 @@ def app(supplement_name, delete_enabled, custom_chars):
                                      if c in df_sheet.columns],
                             inplace=True
                         )
-
-                df_sheet.to_excel(writer, sheet_name=sheet, index=False)
+                        
+                df_sheet_export = convert_quantity_columns(df_sheet.copy())
+                df_sheet_export.to_excel(writer, sheet_name=sheet, index=False)
 
         out.seek(0)
         st.download_button(
