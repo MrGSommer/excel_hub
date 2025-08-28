@@ -78,7 +78,7 @@ with tabs[2]:
     values_merger(supplement_name, delete_enabled, custom_chars)
 
 with tabs[3]:
-    mehrsch_bereinigen(supplement_name, delete_enabled, custom_chars)
+    mehrsch_bereinigen(supplement_name, delete_enabled, custom_chars, convert_quantity_columns)
 
 with tabs[4]:
     advanced_merge_master(supplement_name, delete_enabled, custom_chars)
