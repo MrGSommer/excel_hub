@@ -309,9 +309,9 @@ def app(supplement_name, delete_enabled, custom_chars):
             choices = dict(zip(cfg_df["Feld"], cfg_df["Quelle"]))
             for c, v in choices.items():
                 st.session_state.config_sources[(group, c)] = v
-            config[group] = choices
-        else:
-            st.write("Keine Paare mit ' Sub' vorhanden.")
+            config[group] = choices          
+          else:
+              st.write("Keine Paare mit ' Sub' vorhanden.")
 
     st.caption("Hinweis: *GUID bleibt immer aus der jeweiligen Zeile. Sie wird nie überschrieben.*")
 
