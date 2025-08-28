@@ -242,83 +242,75 @@ def app(supplement_name, delete_enabled, custom_chars):
     # Konfigurator (kompakt via Data Editor)
     # Nur Basisfelder, die eine "... Sub"-Spalte haben
     # -----------------------------
+    # --- Globale Einstellungen je Werte-Paar ---
+    options = ["Auto", "Mutter", "Sub"]
+    
     pair_bases = sorted({
         base for col in df.columns
         if col.endswith(" Sub") and (base := col[:-4]) in df.columns and base != "GUID"
     })
-
-    if not pair_bases:
-        st.info("Keine konfigurierbaren Paare gefunden (keine '... Sub'-Spalten).")
-        pair_bases = []
-
-    # Gruppierung
-    options = ["Mutter", "Sub"]
-    group_col = st.selectbox(
-        "Spalte für Gruppierung wählen",
-        [c for c in df.columns if c != "GUID"],
-        index=0 if any(c != "GUID" for c in df.columns) else 0,
-        key="group_col_select"
+    
+    if "global_sources_per_pair" not in st.session_state:
+        # Default: Auto für jedes Paar
+        st.session_state.global_sources_per_pair = {b: "Auto" for b in pair_bases}
+    
+    st.markdown("### Globale Einstellungen je Paar")
+    global_cfg_df = pd.DataFrame({
+        "Feld": pair_bases,
+        "Globale Quelle": [st.session_state.global_sources_per_pair.get(b, "Auto") for b in pair_bases]
+    })
+    
+    global_cfg_df = st.data_editor(
+        global_cfg_df,
+        num_rows="fixed",
+        disabled=["Feld"],
+        use_container_width=True,
+        column_config={
+            "Feld": st.column_config.TextColumn("Feld (Basis)"),
+            "Globale Quelle": st.column_config.SelectboxColumn(
+                "Globale Quelle", options=options,
+                help="Globale Standardquelle für dieses Feld (Auto/Mutter/Sub)"
+            )
+        },
+        key="global_cfg_table"
     )
-
-    if "config_sources" not in st.session_state:
-        st.session_state.config_sources = {}
-    if "global_source_default" not in st.session_state:
-        st.session_state.global_source_default = "Sub"
-
+    
+    # in Session speichern
+    for _, row in global_cfg_df.iterrows():
+        st.session_state.global_sources_per_pair[row["Feld"]] = row["Globale Quelle"]
+    
     # -----------------------------
-    # Globale Einstellung (oberste Steuerung)
+    # Gruppen-Konfigurator (Abweichungen von den globalen Defaults)
     # -----------------------------
-    st.markdown("### Globale Einstellung")
-    prev_global = st.session_state.global_source_default
-    global_choice = st.selectbox(
-        "Globale Quelle für alle Paare",
-        options,
-        index=options.index(prev_global),
-        key="global_source_default_select"
-    )
-
-    # Wenn globale Auswahl geändert wurde -> auf alle Gruppen/Felder anwenden (überschreiben)
-    if global_choice != prev_global or st.button("Globale Auswahl auf alle Gruppen anwenden"):
-        st.session_state.global_source_default = global_choice
-        # Gruppenwerte bestimmen
-        groups_all = sorted(df[group_col].dropna().unique()) if group_col in df.columns else []
-        for g in groups_all:
-            for b in pair_bases:
-                st.session_state.config_sources[(g, b)] = global_choice
-        st.success("Globale Auswahl wurde auf alle Gruppen/Felder angewendet.")
-
-    # Gruppen-Editoren
-    st.markdown("### Gruppen-Konfigurator (Abweichungen von der globalen Einstellung)")
+    st.markdown("### Gruppen-Konfigurator (Abweichungen)")
+    config = {}
     groups = sorted(df[group_col].dropna().unique()) if group_col in df.columns else []
     cols_layout = st.columns(2) if len(groups) > 1 else [st]
-
-    config: dict[str, dict[str, str]] = {}
+    
     for gi, group in enumerate(groups):
         with cols_layout[gi % 2].expander(f"{group_col} = {group}", expanded=False):
-            if pair_bases:
-                defaults = [st.session_state.config_sources.get((group, b), st.session_state.global_source_default)
-                            for b in pair_bases]
-                cfg_df = pd.DataFrame({"Feld": pair_bases, "Quelle": defaults})
-                cfg_df = st.data_editor(
-                    cfg_df,
-                    num_rows="fixed",
-                    disabled=["Feld"],
-                    use_container_width=True,
-                    column_config={
-                        "Feld": st.column_config.TextColumn("Feld (Basis)"),
-                        "Quelle": st.column_config.SelectboxColumn(
-                            "Quelle", options=options,
-                            help="Wert aus Mutter- oder Sub-Zeile übernehmen"
-                        )
-                    },
-                    key=f"cfg_table_{group}"
-                )
-                choices = dict(zip(cfg_df["Feld"], cfg_df["Quelle"]))
-                for c, v in choices.items():
-                    st.session_state.config_sources[(group, c)] = v
-                config[group] = choices
-            else:
-                st.write("Keine Paare mit ' Sub' vorhanden.")
+            defaults = [
+                st.session_state.config_sources.get((group, b), st.session_state.global_sources_per_pair[b])
+                for b in pair_bases
+            ]
+            cfg_df = pd.DataFrame({"Feld": pair_bases, "Quelle": defaults})
+            cfg_df = st.data_editor(
+                cfg_df,
+                num_rows="fixed",
+                disabled=["Feld"],
+                use_container_width=True,
+                column_config={
+                    "Feld": st.column_config.TextColumn("Feld (Basis)"),
+                    "Quelle": st.column_config.SelectboxColumn("Quelle", options=options)
+                },
+                key=f"cfg_table_{group}"
+            )
+            choices = dict(zip(cfg_df["Feld"], cfg_df["Quelle"]))
+            for c, v in choices.items():
+                st.session_state.config_sources[(group, c)] = v
+            config[group] = choices
+        else:
+            st.write("Keine Paare mit ' Sub' vorhanden.")
 
     st.caption("Hinweis: *GUID bleibt immer aus der jeweiligen Zeile. Sie wird nie überschrieben.*")
 
