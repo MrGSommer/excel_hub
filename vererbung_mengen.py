@@ -56,6 +56,16 @@ def _detect_quantity_pairs(df: pd.DataFrame, sub_pairs: list[str], sample: int =
 
 
 # --------- Kernbereinigung ---------
+
+
+def _is_typ_name_base(name: str) -> bool:
+    if not isinstance(name, str):
+        return False
+    n = name.strip().lower().replace(" ", "")
+    return n in {"typname", "typename", "type"} or name.strip().lower() in {"typ name", "type name"}
+
+
+
 def _process_df(
     df: pd.DataFrame,
     drop_treppe_sub: bool,
@@ -116,15 +126,20 @@ def _process_df(
             for idx in sub_idxs:
                 for base in sub_pairs:
                     sub_col = f"{base} Sub"
-                    if base in qty_pairs:
-                        # Menge: Sub-Wert wenn vorhanden, sonst Mutter
+            
+                    # Spezialfall: 'Typ Name' (und Varianten) immer Sub bevorzugen, sonst Mutter
+                    is_typ_name = _is_typ_name_base(base)
+            
+                    if base in qty_pairs or is_typ_name:
+                        # Sub bevorzugen, sonst Mutter
                         if sub_col in df.columns and _has_value(df.at[idx, sub_col]):
                             df.at[idx, base] = df.at[idx, sub_col]
                         else:
                             df.at[idx, base] = df.at[i, base]
                     else:
-                        # Attribut: Mutter vererben
+                        # Attribut (nicht Menge, nicht Typ Name): Mutter vererben
                         df.at[idx, base] = df.at[i, base]
+
             i = j
         else:
             i += 1
@@ -171,6 +186,19 @@ def _process_df(
                     stats["mothers_dropped"] += 1
                     for idx in sub_idxs:
                         new = df.loc[idx].copy()
+
+                                                # GUID der Sub explizit sichern
+                        if "GUID" in df.columns:
+                            new["GUID"] = df.at[idx, "GUID"]
+                        
+                        # Typ Name explizit aus Sub übernehmen, falls vorhanden
+                        for candidate in ["Typ Name", "Type Name", "Typname", "Type"]:
+                            sub_c = f"{candidate} Sub"
+                            if candidate in df.columns:
+                                if sub_c in df.columns and _has_value(df.at[idx, sub_c]):
+                                    new[candidate] = df.at[idx, sub_c]
+
+                        
                         new["Mehrschichtiges Element"] = False
                         # Master-Kontext beibehalten (bereits vererbt)
                         for c in master_cols:
@@ -200,6 +228,10 @@ def _process_df(
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
     if "eBKP-H" in df.columns:
         df = df[~df["eBKP-H"].isin(["Keine Zuordnung", "Nicht klassifiziert"])]
+    for c in ["Einzelteile", "Farbe"]:
+        if c in df.columns:
+            df.drop(columns=c, inplace=True)
+
     df.reset_index(drop=True, inplace=True)
 
     # 6) Deduplizieren (GUID-identische Voll-Duplikate)
