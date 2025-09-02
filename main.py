@@ -8,6 +8,7 @@ from advanced_excel_merge_sheets import app as advanced_merge_sheets
 from app_advisor import app_advisor
 from ito_download import app as download_templates
 from compare_files import app as compare_tool
+from vererbung_mengen import app as vererbung_mengen
 
 st.set_page_config(page_title="Excel Operation Tools", layout="wide")
 st.title("Excel Operation Tools 🚀")
@@ -65,7 +66,8 @@ tabs = st.tabs([
     "Merge to Table",
     "Merge to Sheets",
     "Versionierung",
-    "Download Templates"
+    "Vererbung & Mengenübernahme",
+    "Download Templates"    
 ])
 
 with tabs[0]:
@@ -93,4 +95,8 @@ with tabs[7]:
     compare_tool(supplement_name, delete_enabled, custom_chars)
 
 with tabs[8]:
+    vererbung_mengen(supplement_name, delete_enabled, custom_chars)
+
+with tabs[9]:
     download_templates()
+
