@@ -174,14 +174,54 @@ def clean_columns_values(df: pd.DataFrame,
 
     return df
 
-def detect_header_row(df_raw: pd.DataFrame, suchbegriff: str = "Teilprojekt") -> int:
+def detect_header_row(df_raw: pd.DataFrame,
+                      keys: list[str] = None,
+                      max_scan_rows: int = 10) -> int:
     """
-    Index der ersten Zeile, die suchbegriff enthält. Fallback 0.
+    Bestimmt den Header-Zeilenindex, indem in den ersten `max_scan_rows` Zeilen
+    nach Key-Spalten gesucht wird. Bewertet jede Zeile nach Anzahl Key-Treffer
+    und nimmt die Zeile mit dem hoechsten Score. Fallback: 0.
+
+    Parameters
+    ----------
+    df_raw : pd.DataFrame
+        Roh-DataFrame, mit header=None eingelesen.
+    keys : list[str]
+        Liste der gesuchten Schluesselspalten (case-insensitive).
+        Default: ["Teilprojekt", "Geschoss", "GUID"]
+    max_scan_rows : int
+        Anzahl der zu pruefenden Zeilen von oben.
+
+    Returns
+    -------
+    int
+        0-basierter Index der erkannten Header-Zeile.
     """
-    for idx, row in df_raw.iterrows():
-        if row.astype(str).str.contains(suchbegriff, case=False, na=False).any():
-            return idx
-    return 0
+    if keys is None:
+        keys = ["Teilprojekt", "Geschoss", "GUID"]
+
+    # auf die ersten max_scan_rows begrenzen
+    scan_limit = min(max_scan_rows, len(df_raw))
+    best_idx = 0
+    best_score = -1
+
+    for idx in range(scan_limit):
+        row = df_raw.iloc[idx].astype(str).fillna("")
+        # normalisieren (trim + lower)
+        normalized = [str(c).strip().lower() for c in row.tolist()]
+        score = 0
+        for k in keys:
+            k_norm = k.strip().lower()
+            # Treffer, wenn irgendeine Zelle die Key-Bezeichnung enthaelt (Teilstring erlaubt)
+            if any(k_norm in cell for cell in normalized):
+                score += 1
+        if score > best_score:
+            best_score = score
+            best_idx = idx
+
+    # kein Key gefunden -> 0
+    return best_idx if best_score > 0 else 0
+
 
 def apply_preset_hierarchy(df: pd.DataFrame,
                            existing_hierarchy: dict,
