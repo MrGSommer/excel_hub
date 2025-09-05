@@ -221,19 +221,49 @@ def apply_preset_hierarchy(df: pd.DataFrame,
                 existing_hierarchy[measure] = detected
     return existing_hierarchy
 
+def _as_lower_str_or_none(x):
+    # Nur echte Strings zulassen; alles andere ignorieren
+    return x.lower() if isinstance(x, str) else None
+
 def rename_columns_to_standard(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ersetzt alternative Spaltennamen durch Standardnamen laut COLUMN_PRESET.
-    """
+    # 0) MultiIndex-Spalten aufloesen -> eindeutige Stringnamen
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = ["__".join([str(p) for p in tup if p is not None]) for tup in df.columns]
+
     renamed = {}
-    for standard, alts in COLUMN_PRESET.items():
-        matches = [c for c in df.columns
-                   if any(alt.lower() in c.lower() for alt in alts)]
+
+    # 1) Aliaslisten von None/Non-Strings saeubern (falls COLUMN_PRESET unsauber)
+    clean_preset = {
+        standard: [a for a in (alts or []) if isinstance(a, str) and a.strip() != ""]
+        for standard, alts in COLUMN_PRESET.items()
+    }
+
+    # 2) Spaltennamen, die keine Strings sind, ignorieren (nicht zwangsweise in Strings casten)
+    valid_cols = [c for c in df.columns if isinstance(c, str) and c.strip() != ""]
+
+    for standard, alts in clean_preset.items():
+        matches = []
+        for c in valid_cols:
+            c_l = _as_lower_str_or_none(c)
+            # Wenn c kein String ist, ueberspringen
+            if c_l is None:
+                continue
+            # Sobald ein Alias als Teilstring vorkommt, ist es ein Match
+            for alt in alts:
+                alt_l = _as_lower_str_or_none(alt)
+                if alt_l and alt_l in c_l:
+                    matches.append(c)
+                    break
+
         if matches:
             if len(matches) > 1:
-                st.warning(f"Mehrfach: {matches}. Nutze '{matches[0]}'.")
+                st.warning(f"Mehrfach: {matches}. Nutze '{matches[0]}' fuer '{standard}'.")
             renamed[matches[0]] = standard
-    return df.rename(columns=renamed)
+
+    if renamed:
+        df = df.rename(columns=renamed)
+
+    return df
 
 def prepend_values_cleaning(df: pd.DataFrame,
                             delete_enabled: bool = False,
