@@ -1,10 +1,14 @@
 import streamlit as st
 import pandas as pd
 import io
-import openpyxl
 from collections import Counter
 from openpyxl.styles import PatternFill
-from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns  
+from excel_utils import (
+    clean_columns_values,
+    rename_columns_to_standard,
+    convert_quantity_columns,
+    detect_header_row,
+)
 
 def app(supplement_name, delete_enabled, custom_chars):
     st.header("Merge to Table")
@@ -33,16 +37,20 @@ def app(supplement_name, delete_enabled, custom_chars):
     # 1) Lesen und Häufigkeit zählen
     for idx, file in enumerate(uploaded_files, start=1):
         try:
-            wb = openpyxl.load_workbook(file, data_only=True)
-            sheet = wb.active
-            headers = [cell.value for cell in sheet[1]]
-            if not headers:
-                st.warning(f"{file.name}: kein Header, übersprungen.")
-                continue
+            # Rohdaten ohne Header laden
+            df_raw = pd.read_excel(file, header=None)
 
-            column_freq.update(headers)
-            for row in sheet.iter_rows(min_row=2, values_only=True):
-                merged_rows.append(dict(zip(headers, row)))
+            # Header-Zeile automatisch erkennen
+            header_row = detect_header_row(df_raw)
+
+            # Datei mit erkanntem Header einlesen
+            df = pd.read_excel(file, header=header_row)
+
+            column_freq.update(df.columns)
+            merged_rows.extend(df.to_dict("records"))
+
+            st.success(f"{file.name}: Header in Zeile {header_row+1} erkannt.")
+
         except Exception as e:
             st.error(f"Fehler bei {file.name}: {e}")
         progress.progress(idx / total)
@@ -51,7 +59,7 @@ def app(supplement_name, delete_enabled, custom_chars):
         st.error("Keine gültigen Daten gefunden.")
         return
 
-    # 2) DataFrame erstellen
+    # 2) DataFrame erstellen mit Spalten nach Häufigkeit
     cols_sorted = [col for col, _ in column_freq.most_common()]
     df = pd.DataFrame(merged_rows, columns=cols_sorted)
 
@@ -59,7 +67,7 @@ def app(supplement_name, delete_enabled, custom_chars):
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled, custom_chars)
 
-    # 3.1) Spalten-Reihenfolge anpassen: master_cols → measure_cols → Rest
+    # 3.1) Spalten-Reihenfolge anpassen
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
@@ -68,15 +76,12 @@ def app(supplement_name, delete_enabled, custom_chars):
     measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
 
     ordered = []
-    # zuerst alle vorhandenen master_cols
     for col in master_cols:
         if col in df.columns:
             ordered.append(col)
-    # dann alle measure_cols
     for col in measure_cols:
         if col in df.columns:
             ordered.append(col)
-    # dann alle übrigen Spalten
     for col in df.columns:
         if col not in ordered:
             ordered.append(col)
@@ -89,7 +94,6 @@ def app(supplement_name, delete_enabled, custom_chars):
         dup_count = dup_mask.sum()
         if dup_count:
             st.warning(f"{dup_count} Zeilen mit doppelter GUID gefunden und markiert")
-            # Anzeige mit Hervorhebung
             def highlight_dup(val):
                 return 'background-color: yellow' if val else ''
             styled = df.style.apply(
@@ -111,7 +115,6 @@ def app(supplement_name, delete_enabled, custom_chars):
         wb = writer.book
         ws = wb[supplement_name or "Merged"]
 
-        # Markierung: gelbe Füllung für Duplikat-Zeilen
         if dup_mask is not None and dup_mask.any():
             fill = PatternFill(fill_type="solid", fgColor="FFFF00")
             for excel_row, is_dup in enumerate(dup_mask, start=2):
