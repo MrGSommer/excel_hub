@@ -46,6 +46,9 @@ def app(supplement_name, delete_enabled, custom_chars):
             # Datei mit erkanntem Header einlesen
             df = pd.read_excel(file, header=header_row)
 
+            # Ungültige Platzhalterwerte ersetzen
+            df.replace({"---": None, "": None}, inplace=True)
+
             column_freq.update(df.columns)
             merged_rows.extend(df.to_dict("records"))
 
@@ -68,23 +71,24 @@ def app(supplement_name, delete_enabled, custom_chars):
     df = clean_columns_values(df, delete_enabled, custom_chars)
 
     # 3.1) Spalten-Reihenfolge anpassen
+    # nur master_cols fixieren, measure_cols ignorieren
     master_cols = [
         "Teilprojekt", "Gebäude", "Baufeld", "Geschoss",
         "eBKP-H", "Umbaustatus", "Unter Terrain", "Beschreibung",
-        "Material", "Typ", "Name", "Ergänzung", "ING"
+        "Material", "Typ", "Name", "Ergänzung", "ING", "GUID"
     ]
-    measure_cols = ["Dicke (m)", "Fläche (m2)", "Volumen (m3)", "Länge (m)", "Höhe (m)"]
-
+    
     ordered = []
+    # zuerst alle vorhandenen master_cols
     for col in master_cols:
         if col in df.columns:
             ordered.append(col)
-    for col in measure_cols:
-        if col in df.columns:
-            ordered.append(col)
+    
+    # danach alle übrigen Spalten, aber nur falls sie im DataFrame vorkommen
     for col in df.columns:
         if col not in ordered:
             ordered.append(col)
+    
     df = df[ordered]
 
     # 4) GUID-Duplikate erkennen
