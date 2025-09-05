@@ -132,7 +132,7 @@ def clean_columns_values(df: pd.DataFrame,
     5) Warnung bei komplett leeren Mengenspalten
     """
     # 1)
-    df = df.replace("Nicht klassifiziert", pd.NA)
+    df = df.replace("Nicht klassifiziert", pd.NA).replace("<Nicht definiert>", pd.NA)          
 
     # 1.1) Spalten mit Farbangaben löschen
     for drop_col in ("Farbe", "Color"):
