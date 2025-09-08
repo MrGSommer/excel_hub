@@ -12,7 +12,7 @@ def _has_value(x) -> bool:
 
 
 def _is_undef(val: any) -> bool:
-    """Hilfsfunktion: prüft, ob eBKP-H-Wert als 'nicht definiert' gilt."""
+    """Hilfsfunktion: prueft, ob eBKP-H-Wert als 'nicht definiert' gilt."""
     if not _has_value(val):
         return True
     txt = str(val).strip().lower()
@@ -27,7 +27,7 @@ def _is_undef(val: any) -> bool:
 # --------- Kernbereinigung ---------
 def _process_df(
     df: pd.DataFrame,
-    drop_treppe_sub: bool,
+    drop_sub_values: list[str] | None = None,  # Liste exakter eBKP-H-Werte zum Droppen (nur Sub-Zeilen)
 ) -> pd.DataFrame:
     """
     Grundregel:
@@ -35,6 +35,10 @@ def _process_df(
     Werte verwendet und ersetzen die Basiswerte. Fehlt ein '... Sub' Wert, wird der Mutterwert uebernommen.
     GUID bleibt fuer alle Elemente erhalten; beim Promoten gilt 'GUID Sub' > 'GUID'.
     """
+    drop_sub_values = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
+
+    def _matches_drop_values(val: any) -> bool:
+        return str(val or "").strip().lower() in drop_sub_values if drop_sub_values else False
 
     # Master-Kontextspalten (vom Mutterelement vererben)
     master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain", "Typ"]
@@ -105,28 +109,16 @@ def _process_df(
                 sub_idxs.append(j)
                 j += 1
 
-            treppe_case = False
-            mother_txt = str(df.at[i, "eBKP-H"]) if "eBKP-H" in df.columns else ""
-            if "Treppe" in mother_txt:
-                treppe_case = True
-            for idx in sub_idxs:
-                if "eBKP-H Sub" in df.columns and "Treppe" in str(df.at[idx, "eBKP-H Sub"]):
-                    treppe_case = True
-                if "eBKP-H" in df.columns and "Treppe" in str(df.at[idx, "eBKP-H"]):
-                    treppe_case = True
+            # NEU: Sub-Zeilen anhand exakter eBKP-H Auswahlliste droppen
+            if drop_sub_values:
+                for idx in list(sub_idxs):
+                    ebkp_sub = df.at[idx, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else pd.NA
+                    ebkp     = df.at[idx, "eBKP-H"] if "eBKP-H" in df.columns else pd.NA
+                    if _matches_drop_values(ebkp_sub) or _matches_drop_values(ebkp):
+                        drop_idx.append(idx)
+                        sub_idxs.remove(idx)
 
             if sub_idxs:
-                if treppe_case:
-                    if drop_treppe_sub:
-                        for idx in sub_idxs:
-                            if (
-                                ("eBKP-H Sub" in df.columns and "Treppe" in str(df.at[idx, "eBKP-H Sub"])) or
-                                ("eBKP-H" in df.columns and "Treppe" in str(df.at[idx, "eBKP-H"]))
-                            ):
-                                drop_idx.append(idx)
-                    i = j
-                    continue
-
                 # Nutzbare Subs vorhanden: Mutter droppen und Subs promoten
                 drop_idx.append(i)
                 for idx in sub_idxs:
@@ -152,6 +144,7 @@ def _process_df(
 
                     new_rows.append(new)
             else:
+                # Keine nutzbaren Subs (oder alle gedroppt) -> Mutter bleibt Hauptzeile
                 df.at[i, "Mehrschichtiges Element"] = False
 
             i = j
@@ -208,8 +201,11 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     1) eBKP-H der Mutter → an Subs vererben, wenn `eBKP-H Sub` nicht definiert ist.  
     2) Generisch: Fuer jedes Basis/`... Sub`-Paar gilt **Sub bevorzugen, sonst Mutter**.  
     3) Subs als Hauptzeilen promoten; dabei alle vorhandenen `... Sub`-Werte uebernehmen; Mutter droppen.  
-       **Treppe**: Mutter bleibt; Subs optional droppen.  
     4) 'Nicht klassifiziert', 'Keine Zuordnung', 'Nicht verfügbar' gelten als nicht definiert.
+
+    **Steuerung:**  
+    - Auswahl unten: Sub-Zeilen droppen, deren eBKP-H exakt in der Liste ist.  
+    - Verarbeitung startet erst beim Button-Klick (Formular).
     """)
 
     uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="vererbung_file_uploader")
@@ -223,17 +219,32 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         return
 
     st.subheader("Originale Daten (15 Zeilen)")
-    st.dataframe(df.head(15), width="stretch")
+    st.dataframe(df.head(15), use_container_width=True)
 
-    drop_treppe_sub = st.checkbox("Bei 'Treppe' Sub-Zeilen droppen (Mutter bleiben)", value=True)
+    # Kandidaten fuer Dropdown: union aus eBKP-H und eBKP-H Sub
+    ebkp_candidates = []
+    if "eBKP-H" in df.columns:
+        ebkp_candidates.extend(df["eBKP-H"].dropna().astype(str).str.strip().tolist())
+    if "eBKP-H Sub" in df.columns:
+        ebkp_candidates.extend(df["eBKP-H Sub"].dropna().astype(str).str.strip().tolist())
+    ebkp_options = sorted({v for v in ebkp_candidates if v})
 
-    if st.button("Verarbeitung starte"):
+    with st.form(key="vererbung_form"):
+        sel_drop_values = st.multiselect(
+            "Sub-Zeilen droppen, wenn eBKP-H exakt gleich einem der folgenden Werte ist",
+            options=ebkp_options,
+            default=[],
+            help="Mehrfachauswahl moeglich. Es wird exakt auf den Text verglichen."
+        )
+        run = st.form_submit_button("Verarbeitung starte")
+
+    if run:
         with st.spinner("Verarbeitung laeuft ..."):
-            df_clean = _process_df(df.copy(), drop_treppe_sub=drop_treppe_sub)
+            df_clean = _process_df(df.copy(), drop_sub_values=sel_drop_values)
             df_clean = convert_quantity_columns(df_clean)
 
         st.subheader("Bereinigte Daten (15 Zeilen)")
-        st.dataframe(df_clean.head(15), width="stretch")
+        st.dataframe(df_clean.head(15), use_container_width=True)
 
         # Export
         output = io.BytesIO()
