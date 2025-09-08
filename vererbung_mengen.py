@@ -223,7 +223,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         return
 
     st.subheader("Originale Daten (15 Zeilen)")
-    st.dataframe(df.head(15), use_container_width=True)
+    st.dataframe(df.head(15), width="stretch")
 
     drop_treppe_sub = st.checkbox("Bei 'Treppe' Sub-Zeilen droppen (Mutter bleiben)", value=True)
 
@@ -233,7 +233,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             df_clean = convert_quantity_columns(df_clean)
 
         st.subheader("Bereinigte Daten (15 Zeilen)")
-        st.dataframe(df_clean.head(15), use_container_width=True)
+        st.dataframe(df_clean.head(15), width="stretch")
 
         # Export
         output = io.BytesIO()
