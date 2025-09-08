@@ -280,7 +280,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
     drop_treppe_sub = st.checkbox("Bei 'Treppe' Sub-Zeilen droppen (Mutter bleiben)", value=True)
 
-    if st.button("Verarbeitung starten"):
+    if st.button("Verarbeitung starte"):
         with st.spinner("Verarbeitung läuft ..."):
             df_clean, stats = _process_df(df.copy(), drop_treppe_sub=drop_treppe_sub)
 
