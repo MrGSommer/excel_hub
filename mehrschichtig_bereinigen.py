@@ -273,7 +273,7 @@ def app(supplement_name, delete_enabled, custom_chars):
         return
 
     st.subheader("Originale Daten (15 Zeilen)")
-    st.dataframe(df.head(15), use_container_width=True)
+    st.dataframe(df.head(15), width="stretch")
 
     # --- Gruppierungsspalte wählen ---
     group_col = st.selectbox(
@@ -306,7 +306,7 @@ def app(supplement_name, delete_enabled, custom_chars):
             global_cfg_df,
             num_rows="fixed",
             disabled=["Feld"],
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Feld": st.column_config.TextColumn("Feld (Basis)"),
                 "Globale Quelle": st.column_config.SelectboxColumn(
@@ -339,7 +339,7 @@ def app(supplement_name, delete_enabled, custom_chars):
                     cfg_df,
                     num_rows="fixed",
                     disabled=["Feld"],
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                         "Feld": st.column_config.TextColumn("Feld (Basis)"),
                         "Quelle": st.column_config.SelectboxColumn("Quelle", options=options)
@@ -388,7 +388,7 @@ def app(supplement_name, delete_enabled, custom_chars):
             )
 
         st.subheader("Bereinigte Daten (15 Zeilen)")
-        st.dataframe(df_clean.head(15), use_container_width=True)
+        st.dataframe(df_clean.head(15), width="stretch")
 
         # Log / KPIs
         col_a, col_b, col_c = st.columns(3)
@@ -397,7 +397,7 @@ def app(supplement_name, delete_enabled, custom_chars):
         col_c.metric("Gedroppte Treppen-Subs", stats["treppe_subs_dropped"])
         if overrides:
             st.markdown("**Abweichungen von globalen Defaults:**")
-            st.dataframe(pd.DataFrame(overrides), use_container_width=True)
+            st.dataframe(pd.DataFrame(overrides), width="stretch")
 
         # Export mit Float-Spalten (Mengen)
         output = io.BytesIO()
