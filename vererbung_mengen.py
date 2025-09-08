@@ -278,7 +278,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     st.subheader("Originale Daten (15 Zeilen)")
     st.dataframe(df.head(15), use_container_width=True)
 
-    drop_treppe_sub = st.checkbox("Bei 'Treppe' Sub-Zeilen droppen (Mutter bleibt)", value=True)
+    drop_treppe_sub = st.checkbox("Bei 'Treppe' Sub-Zeilen droppen (Mutter bleiben)", value=True)
 
     if st.button("Verarbeitung starten"):
         with st.spinner("Verarbeitung läuft ..."):
