@@ -11,6 +11,19 @@ def _has_value(x) -> bool:
     return pd.notna(x) and str(x).strip() != ""
 
 
+def _is_undef(val: any) -> bool:
+    """Hilfsfunktion: prüft, ob eBKP-H-Wert als 'nicht definiert' gilt."""
+    if not _has_value(val):
+        return True
+    txt = str(val).strip().lower()
+    return (
+        txt == ""
+        or "icht klassifiziert" in txt
+        or "eine zuordnung" in txt
+        or "icht verfügbar" in txt
+    )
+
+
 # --------- Kernbereinigung ---------
 def _process_df(
     df: pd.DataFrame,
@@ -38,7 +51,7 @@ def _process_df(
         lambda row: all(pd.isna(row.get(c)) for c in master_cols), axis=1
     )
 
-    # 1) Mutter-Kontext an Subs vererben (inkl. eBKP-H, wenn Sub fehlt/unklassifiziert)
+    # 1) Mutter-Kontext an Subs vererben (inkl. eBKP-H, wenn Sub fehlt/unklassifiziert/nicht verfügbar)
     i = 0
     while i < len(df):
         if all(pd.notna(df.at[i, c]) for c in master_cols):  # Mutter
@@ -47,13 +60,11 @@ def _process_df(
                 # a) Master-Kontext vererben
                 for c in master_cols:
                     df.at[j, c] = df.at[i, c]
-                # b) eBKP-H vererben, falls eBKP-H Sub fehlt/unklassifiziert
+                # b) eBKP-H vererben, falls eBKP-H Sub nicht definiert
                 if "eBKP-H" in df.columns:
                     mother_ebkp = df.at[i, "eBKP-H"]
                     sub_ebkp_sub = df.at[j, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else pd.NA
-                    if _has_value(mother_ebkp) and (
-                        pd.isna(sub_ebkp_sub) or str(sub_ebkp_sub).strip() in ["", "Nicht klassifiziert", "Keine Zuordnung"]
-                    ):
+                    if _has_value(mother_ebkp) and _is_undef(sub_ebkp_sub):
                         df.at[j, "eBKP-H"] = mother_ebkp
                 j += 1
             i = j
@@ -160,7 +171,10 @@ def _process_df(
     if "Unter Terrain" in df.columns:
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
     if "eBKP-H" in df.columns:
-        df = df[~df["eBKP-H"].isin(["Keine Zuordnung", "Nicht klassifiziert"])]
+        mask_invalid = df["eBKP-H"].astype(str).str.lower().str.contains(
+            "nicht klassifiziert|keine zuordnung|nicht verfügbar", na=True
+        )
+        df = df[~mask_invalid]
     for c in ["Einzelteile", "Farbe"]:
         if c in df.columns:
             df.drop(columns=c, inplace=True)
@@ -191,10 +205,11 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     st.header("Vererbung & Mengenuebernahme")
     st.markdown("""
     **Logik:**  
-    1) eBKP-H der Mutter → an Subs vererben, wenn `eBKP-H Sub` fehlt/unklassifiziert.  
+    1) eBKP-H der Mutter → an Subs vererben, wenn `eBKP-H Sub` nicht definiert ist.  
     2) Generisch: Fuer jedes Basis/`... Sub`-Paar gilt **Sub bevorzugen, sonst Mutter**.  
     3) Subs als Hauptzeilen promoten; dabei alle vorhandenen `... Sub`-Werte uebernehmen; Mutter droppen.  
-       **Treppe**: Mutter bleibt; Subs optional droppen.
+       **Treppe**: Mutter bleibt; Subs optional droppen.  
+    4) 'Nicht klassifiziert', 'Keine Zuordnung', 'Nicht verfügbar' gelten als nicht definiert.
     """)
 
     uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="vererbung_file_uploader")
