@@ -24,6 +24,14 @@ def _is_undef(val: any) -> bool:
     )
 
 
+def _is_na(x) -> bool:
+    """Sicherer Check, ob Wert NA ist (verhindert bool-Kontext von pd.NA)."""
+    try:
+        return pd.isna(x)
+    except Exception:
+        return False
+
+
 # --------- Kernbereinigung ---------
 def _process_df(
     df: pd.DataFrame,
@@ -38,7 +46,9 @@ def _process_df(
     drop_sub_values = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
 
     def _matches_drop_values(val: any) -> bool:
-        return str(val or "").strip().lower() in drop_sub_values if drop_sub_values else False
+        if _is_na(val):
+            return False
+        return str(val).strip().lower() in drop_sub_values if drop_sub_values else False
 
     # Master-Kontextspalten (vom Mutterelement vererben)
     master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain", "Typ"]
@@ -109,12 +119,14 @@ def _process_df(
                 sub_idxs.append(j)
                 j += 1
 
-            # NEU: Sub-Zeilen anhand exakter eBKP-H Auswahlliste droppen
+            # Sub-Zeilen anhand exakter eBKP-H Auswahlliste droppen
             if drop_sub_values:
                 for idx in list(sub_idxs):
-                    ebkp_sub = df.at[idx, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else pd.NA
-                    ebkp     = df.at[idx, "eBKP-H"] if "eBKP-H" in df.columns else pd.NA
-                    if _matches_drop_values(ebkp_sub) or _matches_drop_values(ebkp):
+                    ebkp_sub = df.at[idx, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else None
+                    ebkp     = df.at[idx, "eBKP-H"] if "eBKP-H" in df.columns else None
+                    cond_sub = _matches_drop_values(ebkp_sub)
+                    cond_mom = _matches_drop_values(ebkp)
+                    if cond_sub or cond_mom:
                         drop_idx.append(idx)
                         sub_idxs.remove(idx)
 
@@ -144,7 +156,6 @@ def _process_df(
 
                     new_rows.append(new)
             else:
-                # Keine nutzbaren Subs (oder alle gedroppt) -> Mutter bleibt Hauptzeile
                 df.at[i, "Mehrschichtiges Element"] = False
 
             i = j
