@@ -73,7 +73,7 @@ def _process_df(
     stats = {"inherited_ebkph": 0, "mothers_dropped": 0, "treppe_subs_dropped": 0}
 
     # Master-Kontextspalten (vom Mutterelement vererben)
-    master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain"]
+    master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain", "Typ"]
     master_cols = [c for c in master_cols if c in df.columns]
 
     # Paare Basis / Sub
@@ -186,10 +186,12 @@ def _process_df(
                     stats["mothers_dropped"] += 1
                     for idx in sub_idxs:
                         new = df.loc[idx].copy()
-
-                                                # GUID der Sub explizit sichern
-                        if "GUID" in df.columns:
+                        # GUID der Sub bevorzugen; Fallback auf GUID
+                        if "GUID Sub" in df.columns and _has_value(df.at[idx, "GUID Sub"]):
+                            new["GUID"] = df.at[idx, "GUID Sub"]
+                        elif "GUID" in df.columns:
                             new["GUID"] = df.at[idx, "GUID"]
+
                         
                         # Typ Name explizit aus Sub übernehmen, falls vorhanden
                         for candidate in ["Typ Name", "Type Name", "Typname", "Type"]:
