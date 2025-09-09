@@ -58,7 +58,6 @@
     { "col": "Material",  "op": "contains", "value": "Leichtbau" },
     { "col": "eBKP-H",  "op": "contains", "value": "C0" }
   ],
-  ],
   "then": { "action": "drop" }
 }
 ]
