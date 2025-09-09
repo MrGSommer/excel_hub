@@ -75,6 +75,22 @@ def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
     val = cond.value
     val_folded = _fold_text(val) if isinstance(val, str) else val
 
+    # Numerische Vergleiche (arbeitet auf dem Original-Serien-Typ, nicht auf s_fold)
+    if op in ("lt", "le", "gt", "ge"):
+        s_num = pd.to_numeric(df[col], errors="coerce")
+        try:
+            v = float(val)
+        except Exception:
+            return pd.Series(False, index=df.index)
+        if op == "lt":
+            return s_num.lt(v)
+        if op == "le":
+            return s_num.le(v)
+        if op == "gt":
+            return s_num.gt(v)
+        if op == "ge":
+            return s_num.ge(v)
+            
     if op in ("eq", "equals"):
         if isinstance(val, str) and val_folded == "":
             return s_fold.eq("") | df[col].isna()
@@ -103,53 +119,103 @@ def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
     return pd.Series(False, index=df.index)
 
 
-def apply_materialization_rules(df: pd.DataFrame, rules: list, first_match_wins: bool = False) -> pd.DataFrame:
-    """Regeln (UND-verknuepft) anwenden; '__KEEP__' laesst Spalten unveraendert."""
-    if not rules:
+def apply_materialization_rules(
+    df: pd.DataFrame,
+    rules: List[Dict[str, Any]],
+    first_match_wins: bool = False
+) -> pd.DataFrame:
+    """
+    Wendet Materialisierungs-/Transformationsregeln auf einen DataFrame an.
+
+    Regelstruktur (Beispiel):
+    {
+      "when": [
+        {"col": "Dicke (m)", "op": "le", "value": 0.04},
+        {"col": "Material",  "op": "contains", "value": "Daemmung"}
+      ],
+      "then": {
+        "action": "drop",            # alternativ: "drop": true
+        "set": { "SpalteX": "Wert" } # optional; wird ignoriert, wenn action=drop
+      }
+    }
+
+    Parameter:
+      df               : Eingangs-DataFrame
+      rules            : Liste von Regeln im oben beschriebenen Format
+      first_match_wins : Wenn True, werden Zeilen, die von einer Regel getroffen wurden,
+                         für nachfolgende Regeln nicht weiter berücksichtigt (ausgenommen
+                         gedroppte Zeilen, die ohnehin entfernt sind).
+
+    Rueckgabe:
+      Neuer DataFrame mit angewendeten Regeln.
+    """
+    if df is None or df.empty or not rules:
         return df
 
     out = df.copy()
-    matched_col = "__matched__"
+
+    # Mask, die steuert, welche Zeilen fuer nachfolgende Regeln "noch frei" sind
+    # (nur relevant, wenn first_match_wins=True)
+    active_mask = pd.Series(True, index=out.index)
 
     for rule in rules:
         conds = rule.get("when", []) or []
         then_raw = rule.get("then", {}) or {}
-        set_map: dict = (then_raw.get("set") or {})
+        set_map: Dict[str, Any] = (then_raw.get("set") or {})
 
-        if not conds or not isinstance(set_map, dict):
+        # Drop-Action erkennen (bool oder "drop"-String)
+        drop_action = False
+        act = then_raw.get("action")
+        if isinstance(act, str) and act.strip().lower() == "drop":
+            drop_action = True
+        if bool(then_raw.get("drop", False)):
+            drop_action = True
+
+        if not conds and not drop_action and not set_map:
+            # Leere Regel bewirkt nichts
             continue
 
-        masks = []
-        for c in conds:
-            cond = _Cond(
-                col=c.get("col"),
-                op=c.get("op", "equals"),
-                value=c.get("value"),
-                case_insensitive=bool(c.get("case_insensitive", True)),
-            )
-            masks.append(_apply_single_condition(out, cond))
-        mask = masks[0]
-        for m in masks[1:]:
-            mask &= m
+        # Bedingungsmaske ueber vorhandene Helferfunktion aufbauen
+        try:
+            mask = _build_condition_mask(out, conds) if conds else pd.Series(True, index=out.index)
+            # Nur aktive Zeilen beruecksichtigen, falls first_match_wins
+            if first_match_wins:
+                mask = mask & active_mask
+        except Exception:
+            # Falls eine schlecht definierte Regel crasht, ueberspringen wir sie robust
+            continue
 
         idx = out.index[mask]
         if len(idx) == 0:
             continue
 
-        for k, v in set_map.items():
-            if k not in out.columns or v == "__KEEP__":
-                continue
-            out.loc[idx, k] = v
+        # 1) Drop zuerst anwenden (hat Vorrang vor Set)
+        if drop_action:
+            out = out.drop(index=idx)
 
+            # active_mask an neuen Index anpassen
+            if first_match_wins:
+                # Nach Drop existieren die Zeilen nicht mehr; active_mask auf neuen Index reindizieren
+                active_mask = active_mask.reindex(out.index).fillna(False)
+            # Nach Drop mit naechster Regel fortfahren
+            continue
+
+        # 2) Set-Operationen fuer getroffene Zeilen
+        if set_map:
+            # Nur vorhandene Spalten setzen; "__KEEP__" als No-Op behandeln
+            cols_present = [k for k in set_map.keys() if k in out.columns]
+            for k in cols_present:
+                v = set_map[k]
+                if v == "__KEEP__":
+                    continue
+                out.loc[idx, k] = v
+
+        # 3) first_match_wins: getroffene Zeilen fuer weitere Regeln sperren
         if first_match_wins:
-            if matched_col not in out.columns:
-                out[matched_col] = False
-            out.loc[idx, matched_col] = True
-
-    if matched_col in out.columns:
-        out.drop(columns=matched_col, inplace=True, errors="ignore")
+            active_mask.loc[idx] = False
 
     return out
+
 
 
 # ========= Regeln laden =========
