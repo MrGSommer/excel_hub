@@ -32,15 +32,11 @@ def _is_na(x) -> bool:
 
 
 def _value_labels_with_counts(series: pd.Series) -> Dict[str, str]:
-    """
-    Liefert Mapping: raw_value(str) -> Label "raw_value (Anzahl)".
-    Nur nicht-leere Werte.
-    """
+    """Mapping raw_value -> 'raw_value (Anzahl)'; leere Werte ausgeschlossen."""
     s = series.astype(str).str.strip()
     s = s[s != ""]
     counts = s.value_counts(dropna=True)
-    labels = {val: f"{val} ({counts[val]})" for val in counts.index}
-    return labels
+    return {val: f"{val} ({counts[val]})" for val in counts.index}
 
 
 # ========= Kernverarbeitung =========
@@ -53,7 +49,8 @@ def _process_df(
     - Master-Kontext an Subs vererben; eBKP-H der Mutter vererben, wenn 'eBKP-H Sub' undefiniert.
     - Generisch fuer Basis/'... Sub': 'Sub bevorzugen, sonst Mutter'.
     - Subs promoten; wenn mind. 1 Sub bleibt → Mutter droppen.
-    - 'GUID' bleibt Sub-GUID (falls vorhanden); 'GUID Gruppe' = GUID der Mutter.
+    - GUID der Zeile bleibt Sub-GUID (falls vorhanden); 'GUID Gruppe' = GUID der Mutter.
+    - Nie 'GUID' oder 'GUID Sub' als Spalte loeschen; keine Deduplizierung ueber GUID.
     """
     drop_set = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
 
@@ -76,8 +73,9 @@ def _process_df(
     df["Mehrschichtiges Element"] = df.apply(
         lambda row: all(pd.isna(row.get(c)) for c in master_cols), axis=1
     )
+    if "GUID Gruppe" not in df.columns:
+        df["GUID Gruppe"] = pd.NA  # immer GUID der Mutter
     df["Promoted"] = False
-    df["GUID Gruppe"] = pd.NA  # immer GUID der Mutter
 
     # ===== 1) Mutter-Kontext + eBKP-H vererben =====
     i = 0
@@ -141,16 +139,16 @@ def _process_df(
                     ebkp_sub = df.at[idx, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else None
                     ebkp     = df.at[idx, "eBKP-H"] if "eBKP-H" in df.columns else None
                     if _matches_drop_values(ebkp_sub) or _matches_drop_values(ebkp):
-                        drop_idx.append(idx)
+                        drop_idx.append(idx)   # Sub wird physisch entfernt (gewollt)
                         sub_idxs.remove(idx)
 
             # b) Wenn mind. 1 Sub bleibt → Mutter droppen und Subs promoten
             if sub_idxs:
-                drop_idx.append(i)
+                drop_idx.append(i)  # Mutter droppen ist erlaubt
                 for idx in sub_idxs:
                     new = df.loc[idx].copy()
 
-                    # GUID bleibt Sub (oder Fallback)
+                    # GUID der neuen (promoteten) Zeile = GUID Sub, sonst Fallback
                     if "GUID Sub" in df.columns and _has_value(df.at[idx, "GUID Sub"]):
                         new["GUID"] = df.at[idx, "GUID Sub"]
                     elif "GUID" in df.columns:
@@ -167,7 +165,7 @@ def _process_df(
                     # Metadaten
                     new["Mehrschichtiges Element"] = False
                     new["Promoted"] = True
-                    new["GUID Gruppe"] = mother_guid
+                    new["GUID Gruppe"] = mother_guid  # Gruppen-ID = Mutter-GUID
                     for c in master_cols:
                         new[c] = df.at[i, c]
 
@@ -182,14 +180,17 @@ def _process_df(
         else:
             i += 1
 
+    # Physische Drops anwenden (nur Mutter + explizit ignorierte Subs)
     if drop_idx:
         df.drop(index=drop_idx, inplace=True)
         df.reset_index(drop=True, inplace=True)
+    # Promotete Subs anhaengen
     if new_rows:
         df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
 
-    # ===== 4) ... Sub-Spalten entfernen =====
-    df.drop(columns=[c for c in df.columns if c.endswith(" Sub")], inplace=True, errors="ignore")
+    # ===== 4) ... Sub-Spalten entfernen, aber 'GUID Sub' behalten =====
+    subs_to_drop = [c for c in df.columns if c.endswith(" Sub") and c != "GUID Sub"]
+    df.drop(columns=subs_to_drop, inplace=True, errors="ignore")
 
     # ===== 5) Restbereinigung =====
     if "Unter Terrain" in df.columns:
@@ -205,17 +206,7 @@ def _process_df(
 
     df.reset_index(drop=True, inplace=True)
 
-    # ===== 6) Deduplizieren (exact duplicates je GUID) =====
-    def _remove_exact_duplicates(d: pd.DataFrame) -> pd.DataFrame:
-        if "GUID" not in d.columns:
-            return d
-        drop = []
-        for guid, grp in d.groupby("GUID"):
-            if len(grp) > 1 and all(n <= 1 for n in grp.nunique().values):
-                drop.extend(grp.index.tolist()[1:])
-        return d.drop(index=drop).reset_index(drop=True)
-
-    df = _remove_exact_duplicates(df)
+    # ===== 6) KEIN Deduplizieren ueber GUID (GUIDs nie verlieren) =====
 
     # ===== 7) Standardisieren & Werte bereinigen =====
     df = rename_columns_to_standard(df)
@@ -233,7 +224,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     **Ablauf**
     1) Nur **Subs** anhand eBKP-H **ignorieren** (droppen) → **Verarbeitung starte**.  
     2) **Filter (ÜBERSCHRIFTEN)**: Spalte waehlen → Dropdown mit zusammengefassten Werten erscheint.  
-    3) **Finalisieren**: Auswahl anwenden (Zeilen droppen), Vorschau aktualisieren, Download.  
+    3) **Finalisieren**: Auswahl anwenden (Zeilen droppen), Vorschau aktualisieren, **Download** der finalisierten Datei.  
     """)
 
     # --- Datei laden ---
@@ -273,8 +264,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             df_processed = _process_df(df_raw.copy(), drop_sub_values=sel_drop_values)
             df_processed = convert_quantity_columns(df_processed)
 
-        # Session: Original nach Verarbeitung (ohne Filter) + aktive Sicht
-        st.session_state["df_processed"] = df_processed.copy()
+        # Session: verarbeitete Tabelle (Start fuer Filter)
         st.session_state["df_active"] = df_processed.copy()
 
     # Wenn noch nicht verarbeitet wurde, stoppen
@@ -284,7 +274,6 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
     # Aktueller Stand
     df_active = st.session_state["df_active"]
-    df_processed = st.session_state["df_processed"]
 
     st.subheader("Bereinigte Daten (15 Zeilen)")
     st.dataframe(df_active.head(15), use_container_width=True)
@@ -292,7 +281,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     # Direkter Download der verarbeiteten Datei (ohne weitere Filter)
     out_proc = io.BytesIO()
     with pd.ExcelWriter(out_proc, engine="openpyxl") as writer:
-        df_processed.to_excel(writer, index=False, sheet_name="Bereinigt")
+        df_active.to_excel(writer, index=False, sheet_name="Bereinigt")
     out_proc.seek(0)
     st.download_button(
         "Download: Bereinigte Datei (ohne weitere Verarbeitung)",
@@ -304,7 +293,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
 
     # ===== Bereich 2: Filter (ÜBERSCHRIFTEN) =====
     st.markdown("---")
-    st.subheader("Filter und Droppen von Zeilen gemäss Auswahl")
+    st.subheader("Filter von Elementen und droppen")
 
     # Spaltenauswahl fuer den Filter (keine Live-Verarbeitung)
     with st.form(key="form_filter_select_002"):
@@ -313,14 +302,10 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         btn_prepare = st.form_submit_button("Werte anzeigen")
 
     # Werte-Dropdown erst nach Klick auf "Werte anzeigen"
-    selected_values_raw = []
     if btn_prepare and filter_col and filter_col != "-- Spalte waehlen --":
-        # Zusammengefasste Werte + counts als Labels
-        labels = _value_labels_with_counts(df_active[filter_col])
-        # Stabil: sortiere nach Label
-        options_labels = [labels[k] for k in sorted(labels.keys(), key=lambda x: x.lower())]
-        # Map Label -> Raw-Value
-        inv_map = {v: k for k, v in labels.items()}
+        labels_map = _value_labels_with_counts(df_active[filter_col])
+        options_labels = [labels_map[k] for k in sorted(labels_map.keys(), key=lambda x: x.lower())]
+        inv_map = {v: k for k, v in labels_map.items()}
 
         with st.form(key="form_filter_values_003"):
             sel_labels = st.multiselect(
@@ -333,18 +318,18 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             btn_finalize = st.form_submit_button("Finalisieren")
 
         if btn_finalize:
-            # Zurueck auf Raw-Values mappen
             selected_values_raw = [inv_map[lbl] for lbl in sel_labels]
             if selected_values_raw:
                 mask_drop = df_active[filter_col].astype(str).str.strip().isin(set(selected_values_raw))
                 df_after_filter = df_active.loc[~mask_drop].reset_index(drop=True)
                 st.session_state["df_active"] = df_after_filter.copy()
                 df_active = df_after_filter
-
                 st.success(f"Finalisiert: {mask_drop.sum()} Zeilen entfernt.")
+
+                st.subheader("Finalisierte Vorschau (15 Zeilen)")
                 st.dataframe(df_active.head(15), use_container_width=True)
 
-                # Download fuer finalisierte (gefilterte) Datei
+                # Download fuer finalisierte (gefilterte) Datei – Pflichtbutton nach letztem Schritt
                 out_final = io.BytesIO()
                 with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
                     df_active.to_excel(writer, index=False, sheet_name="Bereinigt_Final")
@@ -358,6 +343,3 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
                 )
             else:
                 st.warning("Keine Werte ausgewaehlt. Keine Aenderung vorgenommen.")
-
-    # Hinweis: Falls Nutzer ohne 'Werte anzeigen' direkt weiter will, ist kein weiterer Download notwendig,
-    # da oben bereits der Download der verarbeiteten Datei ohne weitere Verarbeitung vorhanden ist.
