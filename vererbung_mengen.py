@@ -27,41 +27,33 @@ except Exception:
 from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns
 
 
-# ========= Hilfen =========
-def _has_value(x) -> bool:
-    return pd.notna(x) and str(x).strip() != ""
-
-
-def _is_na(x) -> bool:
-    try:
-        return pd.isna(x)
-    except Exception:
-        return False
-
-
-def _value_labels_with_counts(series: pd.Series) -> Dict[str, str]:
-    """Mapping raw_value -> 'raw_value (Anzahl)'; leere Werte ausgeschlossen."""
-    s = series.astype(str).str.strip()
-    s = s[s != ""]
-    counts = s.value_counts(dropna=True)
-    return {val: f"{val} ({counts[val]})" for val in counts.index}
-
-
-# ========= Normalisierung (Diakritik & Schweizer 'ss') =========
+# ========= Text-Normalisierung (Diakritik & Schweizer 'ss') =========
 def _fold_text(t: Any) -> str:
-    """Trim, kleinschreiben, Diakritik entfernen, ß->ss, fuer robustes Matching."""
+    """Trim, lower, Diakritik entfernen, ß->ss (Schweizer Schreibweise)."""
     if t is None:
         return ""
-    t = str(t).strip().lower()
-    t = t.replace("ß", "ss")
-    # NFKD zerlegt Umlaute, dann Combining-Zeichen entfernen -> a, o, u etc.
+    t = str(t).strip().lower().replace("ß", "ss")
     nfkd = unicodedata.normalize("NFKD", t)
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
 def _norm_series(s: pd.Series) -> pd.Series:
-    """Serie auf gefaltete Vergleichsform bringen (siehe _fold_text)."""
     return s.astype(str).map(_fold_text)
+
+
+def _value_labels_with_counts_multi(series_list: List[pd.Series]) -> Dict[str, str]:
+    """Zaehlwerte ueber mehrere Serien; leer ausschliessen. Rueckgabe: val -> 'val (Anzahl)'."""
+    vals = []
+    for s in series_list:
+        if s is not None:
+            vals.append(s.astype(str).str.strip())
+    if not vals:
+        return {}
+    s = pd.concat(vals, ignore_index=True)
+    s = s[~s.isna()]
+    s = s[s != ""]
+    counts = s.value_counts(dropna=True)
+    return {val: f"{val} ({counts[val]})" for val in counts.index}
 
 
 # ========= Materialisierungs-Regeln =========
@@ -74,7 +66,6 @@ class _Cond:
 
 
 def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
-    """Wendet eine einzelne Bedingung (equals/contains/in/regex...) an."""
     col = cond.col
     if not col or col not in df.columns:
         return pd.Series(False, index=df.index)
@@ -85,7 +76,6 @@ def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
     val_folded = _fold_text(val) if isinstance(val, str) else val
 
     if op in ("eq", "equals"):
-        # equals "" soll auch NaN/None matchen
         if isinstance(val, str) and val_folded == "":
             return s_fold.eq("") | df[col].isna()
         return s_fold.eq(val_folded)
@@ -101,35 +91,20 @@ def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
         return s_fold.str.contains(re.escape(val_folded), na=False)
 
     if op in ("in",):
-        vals = [( _fold_text(v) if isinstance(v, str) else v ) for v in (val or [])]
+        vals = [(_fold_text(v) if isinstance(v, str) else v) for v in (val or [])]
         return s_fold.isin(vals)
 
     if op in ("regex", "matches"):
-        # Achtung: Regex sieht gefaltete Strings (keine Umlaute/Diakritik)
         try:
             return s_fold.str.contains(val, flags=re.IGNORECASE, regex=True, na=False)
         except Exception:
             return pd.Series(False, index=df.index)
 
-    # Unbekannter Operator -> kein Treffer
     return pd.Series(False, index=df.index)
 
 
 def apply_materialization_rules(df: pd.DataFrame, rules: list, first_match_wins: bool = False) -> pd.DataFrame:
-    """
-    Wendet ein Regel-Array an (UND-Verknuepfung pro Regel).
-    Schema Regel:
-      {
-        "when": [
-          {"col":"eBKP-H","op":"contains","value":"C02.01"},
-          {"col":"Material","op":"contains","value":"Daemmung"},
-          {"col":"Unter Terrain","op":"equals","value":"x"}
-        ],
-        "then": { "set": {"eBKP-H": "E01.02 ..."} }
-      }
-
-    Spezialwert: "__KEEP__" = Spalte nicht aendern.
-    """
+    """Regeln (UND-verknuepft) anwenden; '__KEEP__' laesst Spalten unveraendert."""
     if not rules:
         return df
 
@@ -144,7 +119,6 @@ def apply_materialization_rules(df: pd.DataFrame, rules: list, first_match_wins:
         if not conds or not isinstance(set_map, dict):
             continue
 
-        # Kombinierte UND-Maske
         masks = []
         for c in conds:
             cond = _Cond(
@@ -162,97 +136,36 @@ def apply_materialization_rules(df: pd.DataFrame, rules: list, first_match_wins:
         if len(idx) == 0:
             continue
 
-        # Setzen
         for k, v in set_map.items():
             if k not in out.columns or v == "__KEEP__":
                 continue
             out.loc[idx, k] = v
 
-        # Optional: erste-Regel-gewinnt -> markiere und spaetere Regeln ueberspringen
         if first_match_wins:
             if matched_col not in out.columns:
                 out[matched_col] = False
             out.loc[idx, matched_col] = True
 
-    # Hilfsspalte entfernen, falls vorhanden
     if matched_col in out.columns:
         out.drop(columns=matched_col, inplace=True, errors="ignore")
 
     return out
 
 
-# ========= Regeln laden (Online-tauglich) =========
+# ========= Regeln laden =========
 def parse_rules_text(text: str) -> list:
-    """Parst JSON oder YAML aus Text. Leer -> []."""
     if not text or not str(text).strip():
         return []
     t = str(text).strip()
-    # JSON zuerst
     try:
         data = json.loads(t)
         return data if isinstance(data, list) else []
     except Exception:
         pass
-    # YAML Fallback
     if yaml is not None:
         try:
             data = yaml.safe_load(t)
             return data if isinstance(data, list) else []
-        except Exception:
-            return []
-    return []
-
-
-def load_rules_from_upload(file) -> list:
-    """Liest Regeln aus einem Upload (JSON/YAML)."""
-    if file is None:
-        return []
-    try:
-        content = file.read()
-        txt = content.decode("utf-8", errors="ignore")
-        return parse_rules_text(txt)
-    except Exception:
-        return []
-
-
-def load_rules_from_url(url: str) -> list:
-    """Liest Regeln von einer RAW-URL (GitHub raw, S3...)."""
-    if not url or not str(url).strip():
-        return []
-    if requests is None:
-        st.warning("Requests nicht verfuegbar. Bitte Regeln einkopieren oder Datei hochladen.")
-        return []
-    try:
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        return parse_rules_text(r.text)
-    except Exception as e:
-        st.error(f"Regeln konnten nicht geladen werden: {e}")
-        return []
-
-
-def load_rules_from_secrets() -> list:
-    """Laedt Regeln aus Streamlit Secrets (rules_json oder RULES_URL)."""
-    try:
-        if "rules_json" in st.secrets:
-            return parse_rules_text(st.secrets["rules_json"]) or []
-        if "RULES_URL" in st.secrets:
-            return load_rules_from_url(st.secrets["RULES_URL"]) or []
-    except Exception:
-        pass
-    return []
-
-
-def load_rules_from_env() -> list:
-    """Laedt Regeln aus Umgebungsvariablen (RULES_URL oder RULES_PATH)."""
-    url = os.getenv("RULES_URL", "").strip()
-    if url:
-        return load_rules_from_url(url) or []
-    p = os.getenv("RULES_PATH", "").strip()
-    if p and os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                return parse_rules_text(f.read()) or []
         except Exception:
             return []
     return []
@@ -277,12 +190,13 @@ def _process_df(
 ) -> pd.DataFrame:
     """
     Ablauf:
-    - Master-Kontext an Subs vererben; eBKP-H der Mutter vererben, wenn 'eBKP-H Sub' undefiniert.
-    - Generisch fuer Basis/'... Sub': 'Sub bevorzugen, sonst Mutter'.
+    - Master-Kontext an Subs vererben.
+    - eBKP-H der Mutter an alle Nicht-Muetter vererben, wenn Zeilen-eBKP-H undefiniert (""/NaN/Platzhalter).
+    - Werte uebernehmen: '... Sub' bevorzugen, sonst Mutter (nur wenn Ziel leer).
+    - Hauptspalten vor 'Einzelteile' ohne Pendant '... Sub' (ausser GUID) an Nicht-Muetter vererben (wenn Ziel leer).
     - Subs promoten; wenn mind. 1 Sub bleibt -> Mutter droppen.
-    - 'GUID' bleibt Sub-GUID (falls vorhanden); 'GUID Gruppe' = GUID der Mutter.
-    - 'GUID Sub' bleibt als Spalte erhalten; keine Deduplizierung.
-    - Danach: Standardisieren & Werte bereinigen.
+    - 'GUID Sub' bleibt erhalten; keine Deduplizierung.
+    - Standardisieren & Werte bereinigen.
     """
     drop_set = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
     cols = pd.Index(df.columns)
@@ -320,40 +234,58 @@ def _process_df(
 
     # ---------- (1) Master-Kontext + eBKP-H vererben ----------
     if not grp_id.isna().all():
+        # Master-Kontext fuer echte Subs (alle Master leer)
         if master_cols:
             mother_ctx = df.loc[is_mother, master_cols].assign(grp=grp_id[is_mother]).set_index("grp")
             for c in master_cols:
                 df.loc[is_sub, c] = grp_id[is_sub].map(mother_ctx[c])
 
+        # eBKP-H der Mutter an ALLE Nicht-Muetter, wenn Zeilen-eBKP-H undefiniert
         if "eBKP-H" in cols:
             mother_ebkp_map = df.loc[is_mother, ["eBKP-H"]].assign(grp=grp_id[is_mother]).set_index("grp")["eBKP-H"]
-            if "eBKP-H Sub" in cols:
-                sub_ebkp = df["eBKP-H Sub"].astype(str).str.strip()
-                # undefiniert: leer oder "nicht klassifiziert/keine zuordnung/nicht verfuegbar"
-                undef_mask = (
-                    df["eBKP-H Sub"].isna()
-                    | sub_ebkp.eq("")
-                    | sub_ebkp.str.contains(
-                        r"(?i)(nicht klassifiziert|keine zuordnung|nicht verfu[e|�]gbar)",
-                        na=False
-                    )
-                )
-            else:
-                undef_mask = pd.Series(False, index=df.index)
-            mask_set = is_sub & undef_mask
-            df.loc[mask_set, "eBKP-H"] = grp_id[mask_set].map(mother_ebkp_map)
 
-    # ---------- (2) Sub bevorzugen, sonst Mutter ----------
+            ebkp_sub = df["eBKP-H Sub"] if "eBKP-H Sub" in cols else pd.Series(pd.NA, index=df.index)
+            ebkp_row = ebkp_sub.where(ebkp_sub.astype(str).str.strip().ne(""), df.get("eBKP-H", pd.Series(pd.NA, index=df.index)))
+
+            undef_row = (
+                ebkp_row.isna()
+                | ebkp_row.astype(str).str.strip().eq("")
+                | ebkp_row.astype(str).str.contains(r"(?i)nicht\s*klassifiziert|keine\s*zuordnung|nicht\s+verf[uü]gbar", na=False)
+            )
+
+            eligible = (~is_mother) & grp_id.notna() & undef_row
+            df.loc[eligible, "eBKP-H"] = grp_id[eligible].map(mother_ebkp_map)
+
+    # ---------- (2) Werte uebernehmen: Sub bevorzugen, sonst Mutter ----------
+    tgt = (~is_mother) & grp_id.notna()
+
     for base in sub_pairs:
         sub_col = f"{base} Sub"
+
         has_sub_val = df[sub_col].notna() & df[sub_col].astype(str).str.strip().ne("")
         if not grp_id.isna().all():
             mother_base_map = df.loc[is_mother, [base]].assign(grp=grp_id[is_mother]).set_index("grp")[base]
             mother_vals = grp_id.map(mother_base_map)
         else:
             mother_vals = pd.Series(pd.NA, index=df.index)
-        tgt = is_sub
-        df.loc[tgt, base] = df.loc[tgt, sub_col].where(has_sub_val[tgt], other=mother_vals[tgt])
+
+        need_fill = df[base].isna() | df[base].astype(str).str.strip().eq("")
+
+        # 1) Sub-Wert uebernehmen, wenn vorhanden
+        df.loc[tgt & has_sub_val & need_fill, base] = df.loc[tgt & has_sub_val & need_fill, sub_col]
+        # 2) sonst Mutterwert
+        df.loc[tgt & ~has_sub_val & need_fill, base] = mother_vals[tgt & ~has_sub_val & need_fill]
+
+    # ---------- (2b) Hauptspalten ohne Pendant '... Sub' vor 'Einzelteile' vererben ----------
+    cols_list = list(df.columns)
+    boundary = cols_list.index("Einzelteile") if "Einzelteile" in cols_list else len(cols_list)
+    inherit_cols = [c for c in cols_list[:boundary] if c != "GUID" and f"{c} Sub" not in df.columns]
+
+    if inherit_cols and not grp_id.isna().all():
+        for base in inherit_cols:
+            mother_map = df.loc[is_mother, [base]].assign(grp=grp_id[is_mother]).set_index("grp")[base]
+            need_fill = df[base].isna() | df[base].astype(str).str.strip().eq("")
+            df.loc[tgt & need_fill, base] = grp_id[tgt & need_fill].map(mother_map)
 
     # ---------- (3) Sub-Drop gem. eBKP-H + Promotion ----------
     if "eBKP-H Sub" in cols:
@@ -375,7 +307,6 @@ def _process_df(
     grps_with_kept_sub = pd.Index(grp_id[keep_sub_mask].unique()).dropna()
     drop_mother_mask = is_mother & grp_id.isin(grps_with_kept_sub)
 
-    # Promoted-Zeilen erzeugen
     promoted = df.loc[keep_sub_mask].copy()
     if "GUID Sub" in cols:
         guid_sub_ok = promoted["GUID Sub"].notna() & promoted["GUID Sub"].astype(str).str.strip().ne("")
@@ -385,7 +316,6 @@ def _process_df(
     if not mother_guid_map.empty:
         promoted["GUID Gruppe"] = grp_id[keep_sub_mask].map(mother_guid_map).values
 
-    # Original-Muetter + gedroppte Subs entfernen; Promotions anhaengen
     to_drop_idx = df.index[drop_mother_mask | drop_sub_mask]
     if len(to_drop_idx) > 0:
         df = df.drop(index=to_drop_idx)
@@ -401,7 +331,7 @@ def _process_df(
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
     if "eBKP-H" in df.columns:
         mask_invalid = df["eBKP-H"].astype(str).str.lower().str.contains(
-            "nicht klassifiziert|keine zuordnung|nicht verfu[e|�]gbar", na=True
+            r"nicht\s*klassifiziert|keine\s*zuordnung|nicht\s+verf[uü]gbar", na=True
         )
         df = df[~mask_invalid]
     for c in ["Einzelteile", "Farbe"]:
@@ -418,24 +348,23 @@ def _process_df(
 
 
 # ========= Streamlit App =========
-def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
+def app():
     st.set_page_config(page_title="Vererbung & Mengenuebernahme", layout="wide")
     st.header("Vererbung & Mengenuebernahme")
 
-    # Session-State fuer drei eigenstaendige Versionen
+    # Session-State
     if "df_raw" not in st.session_state:
         st.session_state["df_raw"] = None
-    if "df_processed" not in st.session_state:
-        st.session_state["df_processed"] = None
+    if "df_step1" not in st.session_state:
+        st.session_state["df_step1"] = None
     if "df_final" not in st.session_state:
         st.session_state["df_final"] = None
 
     st.markdown("""
 **Ablauf**
-1) Subs anhand eBKP-H **ignorieren** (droppen) → **Verarbeitung starten**.  
-2) **Regeln** (Materialisierung) optional laden (Secrets/Env/Repo/URL/Upload/Text).  
-3) **Filter (UeBERSCHRIFTEN)**: Spalte waehlen → Werte waehlen → **Finalisieren**.  
-4) Drei Vorschauen und Downloads: **Raw**, **Bearbeitet**, **Finalisiert**.
+1) **Einlesen & Bereinigung** (Vererbung/Promotion, keine Regeln, kein Sub-Drop).  
+2) **Subs droppen (eBKP-H exakt)** + **Material-Filter** → danach **Regeln aus rules.json** anwenden.  
+Vorschauen: **Raw**, **Schritt 1**, **Finalisiert**.
     """)
 
     # --- Datei laden ---
@@ -450,135 +379,119 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         st.error(f"Fehler beim Einlesen: {e}")
         st.stop()
 
-    # --- Regeln laden (Online-tauglich) ---
-    with st.expander("Regelwerk (optional) – Quellen: Secrets/Env/Repo/URL/Upload/Text"):
-        rules_text = st.text_area("Regeln einkopieren (JSON oder YAML)", value="", height=180, key="rules_text_area")
-        rules_file = st.file_uploader("Regel-Datei hochladen (JSON/YAML)", type=["json", "yaml", "yml"], key="rules_file")
-        rules_url = st.text_input("RAW-URL (z. B. GitHub raw)", value="", key="rules_url")
+    # ===== Schritt 1: Einlesen & Bereinigung =====
+    st.subheader("1) Einlesen & Bereinigung")
+    with st.form(key="form_step1_process"):
+        btn_step1 = st.form_submit_button("Schritt 1 starten (Bereinigung)")
+    if btn_step1:
+        with st.spinner("Schritt 1 laeuft ..."):
+            df_step1 = _process_df(df_raw.copy(), drop_sub_values=[])   # kein Sub-Drop hier
+            df_step1 = convert_quantity_columns(df_step1)
+        st.session_state["df_step1"] = df_step1.copy()
+        st.session_state["df_final"] = None
 
-        rules_all: List[dict] = []
-        # 0) Automatische Quellen (ohne UI)
-        rules_all += load_rules_from_secrets() or []
-        rules_all += load_rules_from_env() or []
-        rules_all += load_rules_from_repo("rules.json") or []
-        # 1) UI-Quellen (ergaenzend)
-        rules_all += parse_rules_text(rules_text) or []
-        rules_all += load_rules_from_upload(rules_file) or []
-        rules_all += load_rules_from_url(rules_url) or []
+    if st.session_state["df_step1"] is None:
+        st.info("Bitte zuerst Schritt 1 starten (Bereinigung).")
+        st.stop()
 
-        st.caption(f"Geladene Regeln (Summe): {len(rules_all)}")
+    df_step1 = st.session_state["df_step1"]
 
-    # --- Vorschau: Raw ---
-    st.subheader("1) Originale Daten (Raw, 15 Zeilen)")
-    st.dataframe(df_raw.head(15), use_container_width=True)
+    # ===== Schritt 2: Sub-Drop + Material-Filter + REGELN (am Ende) =====
+    st.markdown("---")
+    st.subheader("2) Subs droppen (eBKP-H) + Material-Filter + REGELN")
 
-    # eBKP-H Optionen fuer Sub-Drop
+    # eBKP-H Optionen (aus RAW)
     ebkp_options = sorted(
         pd.Series(
             pd.concat([
                 df_raw.get("eBKP-H", pd.Series(dtype=object)),
                 df_raw.get("eBKP-H Sub", pd.Series(dtype=object))
-            ])
+            ], ignore_index=True)
         ).dropna().astype(str).str.strip().unique()
     )
 
-    # ===== Formular 1: Verarbeitung =====
-    with st.form(key="form_process_001"):
+    # Material-Optionen (aus RAW: Material + Material Sub)
+    mat_series = []
+    if "Material" in df_raw.columns:
+        mat_series.append(df_raw["Material"])
+    if "Material Sub" in df_raw.columns:
+        mat_series.append(df_raw["Material Sub"])
+    materials_map = _value_labels_with_counts_multi(mat_series)
+    materials_labels = [materials_map[k] for k in sorted(materials_map.keys(), key=lambda x: x.lower())]
+    materials_inv = {v: k for k, v in materials_map.items()}
+
+    with st.form(key="form_step2"):
         sel_drop_values = st.multiselect(
             "Subs ignorieren (droppen), wenn eBKP-H exakt gleich ist",
             options=ebkp_options,
             default=[],
             help="Exakter Textvergleich; wirkt nur auf Sub-Zeilen waehrend der Promotion."
         )
+        sel_material_labels = st.multiselect(
+            "Material zum Entfernen (Material & Material Sub zusammengefasst)",
+            options=materials_labels,
+            default=[],
+            help="Zeilen mit diesen effektiven Material-Werten werden entfernt."
+        )
         first_match_wins = st.checkbox("Materialisierungs-Regeln: erste Regel gewinnt (Stop nach Match)", value=False)
-        btn_process = st.form_submit_button("Verarbeitung starten")
+        btn_step2 = st.form_submit_button("Schritt 2 starten")
 
-    if btn_process:
-        with st.spinner("Verarbeitung laeuft ..."):
-            df_processed = _process_df(df_raw.copy(), drop_sub_values=sel_drop_values)
-            df_processed = convert_quantity_columns(df_processed)
-            if rules_all:
-                df_processed = apply_materialization_rules(df_processed, rules_all, first_match_wins=first_match_wins)
-        st.session_state["df_processed"] = df_processed.copy()
-        st.session_state["df_final"] = None  # Reset Finalisierung
+    if btn_step2:
+        with st.spinner("Schritt 2 laeuft ..."):
+            # 2a) Neu aus RAW prozessieren MIT Sub-Drop (deterministisch)
+            df_after_subdrop = _process_df(df_raw.copy(), drop_sub_values=sel_drop_values)
+            df_after_subdrop = convert_quantity_columns(df_after_subdrop)
 
-    # Verarbeitung muss erfolgt sein
-    if st.session_state["df_processed"] is None:
-        st.info("Bitte zuerst die Verarbeitung starten.")
-        st.stop()
-
-    # ===== Bereich 2: Filter (UeBERSCHRIFTEN) =====
-    st.markdown("---")
-    st.subheader("2) Filter (UeBERSCHRIFTEN)")
-
-    df_processed = st.session_state["df_processed"]
-
-    with st.form(key="form_filter_select_002"):
-        col_options = ["-- Spalte waehlen --"] + list(df_processed.columns)
-        filter_col = st.selectbox("Spalte waehlen", options=col_options, index=0, key="sel_filter_col_002")
-        btn_prepare = st.form_submit_button("Werte anzeigen")
-
-    if btn_prepare and filter_col and filter_col != "-- Spalte waehlen --":
-        labels_map = _value_labels_with_counts(df_processed[filter_col])
-        options_labels = [labels_map[k] for k in sorted(labels_map.keys(), key=lambda x: x.lower())]
-        inv_map = {v: k for k, v in labels_map.items()}
-
-        with st.form(key="form_filter_values_003"):
-            sel_labels = st.multiselect(
-                "Werte zum Entfernen (Zeilen mit diesen Werten werden gedroppt)",
-                options=options_labels,
-                default=[],
-                help="Mehrfachauswahl moeglich. Verarbeitung erst bei 'Finalisieren'.",
-                key="ms_values_003"
-            )
-            btn_finalize = st.form_submit_button("Finalisieren")
-
-        if btn_finalize:
-            selected_values_raw = [inv_map[lbl] for lbl in sel_labels]
-            if selected_values_raw:
-                mask_drop = df_processed[filter_col].astype(str).str.strip().isin(set(selected_values_raw))
-                df_final = df_processed.loc[~mask_drop].reset_index(drop=True)
-                st.session_state["df_final"] = df_final.copy()
-                st.success(f"Finalisiert: {mask_drop.sum()} Zeilen entfernt.")
+            # 2b) Material-Filter VOR Regeln
+            selected_materials = [materials_inv[lbl] for lbl in sel_material_labels]
+            if selected_materials:
+                mat_eff = df_after_subdrop.get("Material", pd.Series("", index=df_after_subdrop.index)).astype(str).str.strip()
+                df_after_filter = df_after_subdrop.loc[~mat_eff.isin(set(selected_materials))].reset_index(drop=True)
             else:
-                st.warning("Keine Werte ausgewaehlt. Keine Aenderung vorgenommen.")
+                df_after_filter = df_after_subdrop
 
-    # ===== Drei Vorschauen + Downloads =====
+            # 2c) REGELN GANZ AM ENDE (aus rules.json im Repo)
+            rules_all: List[dict] = load_rules_from_repo("rules.json") or []
+            df_final = apply_materialization_rules(df_after_filter.copy(), rules_all, first_match_wins=first_match_wins) if rules_all else df_after_filter.copy()
+
+        st.session_state["df_final"] = df_final.copy()
+        st.success("Schritt 2 abgeschlossen.")
+
+    # ===== Vorschauen & Downloads =====
     st.markdown("---")
     st.subheader("3) Vorschauen & Downloads")
 
-    if st.session_state["df_raw"] is not None:
-        st.markdown("**Raw (15 Zeilen)**")
-        st.dataframe(st.session_state["df_raw"].head(15), use_container_width=True)
+    st.markdown("**Raw (15 Zeilen)**")
+    st.dataframe(st.session_state["df_raw"].head(15), use_container_width=True)
 
-    if st.session_state["df_processed"] is not None:
-        st.markdown("**Bearbeitet / Prozessiert (15 Zeilen)**")
-        st.dataframe(st.session_state["df_processed"].head(15), use_container_width=True)
+    st.markdown("**Schritt 1 – Bereinigt (15 Zeilen)**")
+    st.dataframe(df_step1.head(15), use_container_width=True)
+    out_step1 = io.BytesIO()
+    with pd.ExcelWriter(out_step1, engine="openpyxl") as writer:
+        df_step1.to_excel(writer, index=False, sheet_name="Bereinigt_Step1")
+    out_step1.seek(0)
+    st.download_button(
+        "Download: Schritt 1 (ohne Sub-Drop & ohne Regeln)",
+        data=out_step1,
+        file_name="export_bereinigt_step1.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_bereinigt_step1"
+    )
 
-        out_proc = io.BytesIO()
-        with pd.ExcelWriter(out_proc, engine="openpyxl") as writer:
-            st.session_state["df_processed"].to_excel(writer, index=False, sheet_name="Bereinigt")
-        out_proc.seek(0)
-        st.download_button(
-            "Download: Bearbeitet (ohne Filter)",
-            data=out_proc,
-            file_name=f"{(supplement_name or '').strip() or 'default'}_bereinigt.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_bereinigt_only_001"
-        )
-
-    if st.session_state["df_final"] is not None:
-        st.markdown("**Finalisiert (nach Filter, 15 Zeilen)**")
-        st.dataframe(st.session_state["df_final"].head(15), use_container_width=True)
-
+    if st.session_state.get("df_final") is not None:
+        df_final = st.session_state["df_final"]
+        st.markdown("**Finalisiert (15 Zeilen)**")
+        st.dataframe(df_final.head(15), use_container_width=True)
         out_final = io.BytesIO()
         with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
-            st.session_state["df_final"].to_excel(writer, index=False, sheet_name="Bereinigt_Final")
+            df_final.to_excel(writer, index=False, sheet_name="Final_Step2")
         out_final.seek(0)
         st.download_button(
-            "Download: Finalisiert",
+            "Download: Finalisiert (nach Sub-Drop, Material-Filter, REGELN)",
             data=out_final,
-            file_name=f"{(supplement_name or '').strip() or 'default'}_bereinigt_final.xlsx",
+            file_name="export_final_step2.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_bereinigt_final_003"
+            key="dl_final_step2"
         )
+    else:
+        st.info("Schritt 2 noch nicht ausgefuehrt.")
