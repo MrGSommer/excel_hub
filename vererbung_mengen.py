@@ -181,7 +181,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         st.stop()
 
     st.subheader("Originale Daten (15 Zeilen)")
-    st.dataframe(df_raw.head(15), use_container_width=True)
+    st.dataframe(df_raw.head(15), width='stretch)
 
     # eBKP-H Auswahl
     ebkp_options = sorted(
@@ -220,7 +220,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     # Nur zeigen, wenn noch nicht finalisiert
     if not st.session_state.get("finalized", False):
         st.subheader("Bereinigte Daten (15 Zeilen)")
-        st.dataframe(df_active.head(15), use_container_width=True)
+        st.dataframe(df_active.head(15), width='stretch)
 
         out_proc = io.BytesIO()
         with pd.ExcelWriter(out_proc, engine="openpyxl") as writer:
@@ -276,7 +276,7 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     if st.session_state.get("finalized", False):
         df_final = st.session_state["df_active"]
         st.subheader("Finalisierte Vorschau (15 Zeilen)")
-        st.dataframe(df_final.head(15), use_container_width=True)
+        st.dataframe(df_final.head(15), width='stretch)
 
         out_final = io.BytesIO()
         with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
