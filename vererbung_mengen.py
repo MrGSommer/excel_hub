@@ -544,7 +544,7 @@ Vorschauen: **Raw**, **Schritt 1**, **Finalisiert**.
             default=[],
             help="Zeilen mit diesen effektiven Material-Werten werden entfernt."
         )
-        first_match_wins = st.checkbox("Materialisierungs-Regeln: erste Regel gewinnt (Stop nach Match)", value=False)
+        first_match_wins = st.checkbox("Materialisierungs-Regeln: erste Regel gewinnt (Stop nach Match)", value=True)
         btn_step2 = st.form_submit_button("Schritt 2 starten")
 
     if btn_step2:
