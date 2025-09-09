@@ -51,5 +51,14 @@
       {"col": "Material", "op": "contains", "value": "Dämmung"}
     ],
     "then": { "set": {"eBKP-H": "G02.01 Unterkonstruktion zu Bodenbelag/Deckenbelag"} }
-  }
+  },
+  {
+  "when": [
+    { "col": "Dicke (m)", "op": "le", "value": 0.04 },
+    { "col": "Material",  "op": "contains", "value": "Leichtbau" },
+    { "col": "eBKP-H",  "op": "contains", "value": "C0" }
+  ],
+  ],
+  "then": { "action": "drop" }
+}
 ]
