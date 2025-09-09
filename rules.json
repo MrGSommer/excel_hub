@@ -2,16 +2,54 @@
   {
     "when": [
       {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
-      {"col": "Material", "op": "contains", "value": "Stahlbeton"},
-      {"col": "Unter Terrain", "op": "equals", "value": "x"}
+      {"col": "Material", "op": "contains", "value": "Dämmung"},
+      {"col": "Unter Terrain", "op": "equals", "value": ""}
     ],
-    "then": { "set": {"eBKP-H": "__KEEP__"} }
+    "then": { "set": {"eBKP-H": "E02.02 Aussenwärmedämmsystem Fassade"} }
   },
   {
     "when": [
       {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
-      {"col": "Material", "op": "contains", "value": "Daemmung"}
+      {"col": "Material", "op": "contains", "value": "Dämmung"},
+      {"col": "Unter Terrain", "op": "equals", "value": "x"}
     ],
-    "then": { "set": {"eBKP-H": "E01.02"} }
+    "then": { "set": {"eBKP-H": "E01.02 Aussenwärmedämmung unter Terrain"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C04.04"},
+      {"col": "Material", "op": "contains", "value": "Dämmung"},
+      {"col": "Unter Terrain", "op": "equals", "value": "x"}
+    ],
+    "then": { "set": {"eBKP-H": "F01.02 Bedachung Flachdach Erdreich"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C04.04"},
+      {"col": "Material", "op": "contains", "value": "Dämmung"},
+      {"col": "Unter Terrain", "op": "equals", "value": ""}
+    ],
+    "then": { "set": {"eBKP-H": "F01.02 Bedachung Flachdach"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C01.03"},
+      {"col": "Material", "op": "contains", "value": "Dämmung"}
+    ],
+    "then": { "set": {"eBKP-H": "C01.01 Unterbau Fundament, Bodenplatte Dämmung"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.02"},
+      {"col": "Material", "op": "contains", "value": "Dämmung"}
+    ],
+    "then": { "set": {"eBKP-H": "G03.01 Unterkonstruktion zu Wandbekleidung"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C04.01"},
+      {"col": "Material", "op": "contains", "value": "Dämmung"}
+    ],
+    "then": { "set": {"eBKP-H": "G02.01 Unterkonstruktion zu Bodenbelag/Deckenbelag"} }
   }
 ]
