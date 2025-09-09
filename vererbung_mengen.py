@@ -1,4 +1,3 @@
-# main.py
 import io
 import os
 import re
@@ -220,33 +219,79 @@ def apply_materialization_rules(
 
 # ========= Regeln laden =========
 def parse_rules_text(text: str) -> list:
+    """Erwartet JSON: Liste von Regeln ODER Objekt mit Key 'rules' (Liste)."""
     if not text or not str(text).strip():
         return []
     t = str(text).strip()
     try:
         data = json.loads(t)
-        return data if isinstance(data, list) else []
-    except Exception:
-        pass
-    if yaml is not None:
-        try:
-            data = yaml.safe_load(t)
-            return data if isinstance(data, list) else []
-        except Exception:
-            return []
-    return []
+    except Exception as e:
+        if "st" in globals():
+            st.error(f"rules.json ist kein gueltiges JSON: {e}")
+        return []
+
+    # Liste direkt oder { "rules": [...] }
+    rules = []
+    if isinstance(data, list):
+        rules = data
+    elif isinstance(data, dict) and isinstance(data.get("rules"), list):
+        rules = data["rules"]
+    else:
+        if "st" in globals():
+            st.warning("rules.json geladen, aber keine Liste oder 'rules'-Liste gefunden.")
+        return []
+
+    # Minimal-Validierung jedes Objekts
+    valid_ops = {"eq","equals","neq","not_equals","contains","icontains","in","regex","matches","lt","le","gt","ge"}
+    cleaned = []
+    for i, r in enumerate(rules):
+        if not isinstance(r, dict):
+            continue
+        when = r.get("when", [])
+        then = r.get("then", {})
+        if not isinstance(when, list) or not isinstance(then, dict):
+            continue
+        ok = True
+        for c in when:
+            if not isinstance(c, dict):
+                ok = False; break
+            if "col" not in c or "op" not in c or "value" not in c:
+                ok = False; break
+            if str(c["op"]).lower() not in valid_ops:
+                ok = False; break
+        if ok:
+            cleaned.append(r)
+        else:
+            if "st" in globals():
+                st.caption(f"Regel {i} uebersprungen: ungueltes Format/Operator.")
+    return cleaned
+
 
 
 def load_rules_from_repo(filename: str = "rules.json") -> list:
-    """Laedt rules.json aus dem Deploy-Repo (gleicher Ordner wie main.py)."""
+    """Laedt nur JSON-Regeln aus dem lokalen Repo."""
     try:
         base_dir = Path(__file__).parent
         path = base_dir / filename
-        if path.exists():
-            return parse_rules_text(path.read_text(encoding="utf-8")) or []
-    except Exception:
-        pass
-    return []
+        if not path.exists():
+            if "st" in globals():
+                st.info(f"{filename} nicht gefunden in {base_dir}.")
+            return []
+        if path.suffix.lower() != ".json":
+            if "st" in globals():
+                st.warning(f"{filename} ist keine .json-Datei. Bitte JSON verwenden.")
+            return []
+
+        txt = path.read_text(encoding="utf-8")
+        rules = parse_rules_text(txt)
+        if "st" in globals():
+            st.caption(f"rules.json geladen: {len(rules)} gueltige Regeln.")
+        return rules
+    except Exception as e:
+        if "st" in globals():
+            st.error(f"Fehler beim Laden von rules.json: {e}")
+        return []
+
 
 
 # ========= Kernverarbeitung (vektorisiert) =========
@@ -517,9 +562,18 @@ Vorschauen: **Raw**, **Schritt 1**, **Finalisiert**.
                 df_after_filter = df_after_subdrop
 
             # 2c) REGELN GANZ AM ENDE (aus rules.json im Repo)
-            rules_all: List[dict] = load_rules_from_repo("rules.json") or []
-            df_final = apply_materialization_rules(df_after_filter.copy(), rules_all, first_match_wins=first_match_wins) if rules_all else df_after_filter.copy()
+            rules_all: List[dict] = load_rules_from_repo("rules.json")
+            before = len(df_after_filter)
+            df_final = apply_materialization_rules(
+                df_after_filter.copy(),
+                rules_all,
+                first_match_wins=bool(first_match_wins)
+            ) if rules_all else df_after_filter.copy()
+            after = len(df_final)
+            if "st" in globals():
+                st.caption(f"Regeln angewendet: Differenz {before - after:+d} (vorher {before}, nachher {after}).")
 
+        
         st.session_state["df_final"] = df_final.copy()
         st.success("Schritt 2 abgeschlossen.")
 
