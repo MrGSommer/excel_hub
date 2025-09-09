@@ -582,8 +582,3 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="dl_bereinigt_final_003"
         )
-
-
-# Lokaler/Online Start
-if __name__ == "__main__":
-    app(supplement_name="export", delete_enabled=True, custom_chars="")
