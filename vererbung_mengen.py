@@ -1,18 +1,17 @@
 import streamlit as st
 import pandas as pd
 import io
-import re
-from typing import Tuple, Optional
+from typing import Optional, List
 from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns
 
 
-# --------- Hilfen ---------
+# ========= Hilfen =========
 def _has_value(x) -> bool:
     return pd.notna(x) and str(x).strip() != ""
 
 
 def _is_undef(val: any) -> bool:
-    """eBKP-H als 'nicht definiert' erkennen."""
+    """eBKP-H-Wert gilt als 'nicht definiert'."""
     if not _has_value(val):
         return True
     txt = str(val).strip().lower()
@@ -25,58 +24,64 @@ def _is_undef(val: any) -> bool:
 
 
 def _is_na(x) -> bool:
-    """Sicherer Check, ob Wert NA ist (verhindert bool-Kontext von pd.NA)."""
+    """Sicherer NA-Check (verhindert bool-Kontext von pd.NA)."""
     try:
         return pd.isna(x)
     except Exception:
         return False
 
 
-# --------- Kernbereinigung ---------
+# ========= Kernbereinigung =========
 def _process_df(
     df: pd.DataFrame,
-    drop_sub_values: Optional[list[str]] = None,          # exakte eBKP-H-Werte fuer Sub-Zeilen droppen
-    drop_by_type: Optional[Tuple[str, list[str]]] = None, # (spaltenname, werte) nach Verarbeitung loeschen
-    drop_scope: str = "all",                               # "all" | "subs_only" | "promoted_subs_only"
+    drop_sub_values: Optional[List[str]] = None,  # eBKP-H-Werte: Sub-Zeilen mit diesen Texten ignorieren (droppen)
 ) -> pd.DataFrame:
     """
-    Grundregel:
-    - Sub-Zeile zur Hauptzeile befoerdern: vorhandene '... Sub' Werte ersetzen Basiswerte; sonst Mutterwerte.
-    - GUID: bevorzugt 'GUID Sub', sonst 'GUID'.
-    - Master-Kontextspalten werden an Subs vererbt.
+    Logik:
+    - Master-Kontext an Subs vererben. eBKP-H der Mutter vererben, wenn 'eBKP-H Sub' undefiniert.
+    - Generisch: fuer Basis/'... Sub'-Paare gilt 'Sub bevorzugen, sonst Mutter'.
+    - Subs zu Hauptzeilen promoten; Mutter wird gedropt, wenn mind. 1 verwertbarer Sub existiert.
+    - GUID bleibt die der Sub. Neue Spalte 'GUID Gruppe' enthaelt immer die GUID der Mutter.
     """
-    drop_sub_values = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
+    drop_set = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
 
     def _matches_drop_values(val: any) -> bool:
         if _is_na(val):
             return False
-        return str(val).strip().lower() in drop_sub_values if drop_sub_values else False
+        return str(val).strip().lower() in drop_set if drop_set else False
 
-    # Master-Kontextspalten
+    # Master-Kontextspalten (falls vorhanden)
     master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain", "Typ"]
     master_cols = [c for c in master_cols if c in df.columns]
 
-    # Paare Basis / Sub (GUID ausschliessen)
+    # Paare Basis / Sub (GUID bewusst ausschliessen)
     sub_pairs = sorted({
         base for c in df.columns
         if c.endswith(" Sub") and (base := c[:-4]) in df.columns and base != "GUID"
     })
 
-    # Mehrschichtiges Element flaggen: wenn alle master_cols leer → Sub-Zeile
+    # Zeilentypen markieren
     df["Mehrschichtiges Element"] = df.apply(
         lambda row: all(pd.isna(row.get(c)) for c in master_cols), axis=1
     )
-    # Promoted-Flag fuer spaetere Filterung
     df["Promoted"] = False
+    df["GUID Gruppe"] = pd.NA  # immer GUID der Mutter
 
-    # 1) Mutter-Kontext an Subs vererben (inkl. eBKP-H, wenn Sub fehlt/unklassifiziert)
+    # ===== 1) Mutter-Kontext + eBKP-H vererben =====
     i = 0
     while i < len(df):
-        if all(pd.notna(df.at[i, c]) for c in master_cols):  # Mutter
+        # Mutterzeile = alle master_cols belegt
+        if all(pd.notna(df.at[i, c]) for c in master_cols):
+            mother_guid = df.at[i, "GUID"] if "GUID" in df.columns else pd.NA
+            # Mutter kennt ihre Gruppe
+            df.at[i, "GUID Gruppe"] = mother_guid
+
             j = i + 1
             while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
+                # a) Master-Kontext vererben
                 for c in master_cols:
                     df.at[j, c] = df.at[i, c]
+                # b) eBKP-H vererben, falls 'eBKP-H Sub' nicht definiert
                 if "eBKP-H" in df.columns:
                     mother_ebkp = df.at[i, "eBKP-H"]
                     sub_ebkp_sub = df.at[j, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else pd.NA
@@ -87,10 +92,10 @@ def _process_df(
         else:
             i += 1
 
-    # 2) Generisch Sub bevorzugen, sonst Mutter
+    # ===== 2) Sub bevorzugen, sonst Mutter =====
     i = 0
     while i < len(df):
-        if all(pd.notna(df.at[i, c]) for c in master_cols):  # Mutter
+        if all(pd.notna(df.at[i, c]) for c in master_cols):
             j = i + 1
             sub_idxs = []
             while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
@@ -107,20 +112,21 @@ def _process_df(
         else:
             i += 1
 
-    # 3) Subs zu Hauptzeilen promoten; Mutter ggf. droppen
+    # ===== 3) Subs promoten; Mutter ggf. droppen =====
     new_rows = []
     drop_idx = []
     i = 0
     while i < len(df):
         if all(pd.notna(df.at[i, c]) for c in master_cols):  # Mutter
+            mother_guid = df.at[i, "GUID"] if "GUID" in df.columns else pd.NA
             j = i + 1
             sub_idxs = []
             while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
                 sub_idxs.append(j)
                 j += 1
 
-            # Sub-Zeilen anhand exakter eBKP-H-Liste droppen
-            if drop_sub_values:
+            # a) Subs anhand eBKP-H Ignorierliste verwerfen
+            if drop_set:
                 for idx in list(sub_idxs):
                     ebkp_sub = df.at[idx, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else None
                     ebkp     = df.at[idx, "eBKP-H"] if "eBKP-H" in df.columns else None
@@ -128,19 +134,19 @@ def _process_df(
                         drop_idx.append(idx)
                         sub_idxs.remove(idx)
 
+            # b) Wenn nutzbare Subs existieren → Mutter droppen und promoten
             if sub_idxs:
-                # Mutter droppen und Subs promoten
                 drop_idx.append(i)
                 for idx in sub_idxs:
                     new = df.loc[idx].copy()
 
-                    # GUID der Sub bevorzugen; Fallback auf GUID
+                    # GUID bleibt Sub (oder Fallback)
                     if "GUID Sub" in df.columns and _has_value(df.at[idx, "GUID Sub"]):
                         new["GUID"] = df.at[idx, "GUID Sub"]
                     elif "GUID" in df.columns:
                         new["GUID"] = df.at[idx, "GUID"]
 
-                    # Fuer alle Basis/Sub-Paare: Sub bevorzugen, sonst Mutter
+                    # Sub/Basis-Paare finalisieren
                     for base in sub_pairs:
                         sub_col = f"{base} Sub"
                         if sub_col in df.columns and _has_value(df.at[idx, sub_col]):
@@ -148,14 +154,19 @@ def _process_df(
                         else:
                             new[base] = df.at[i, base]
 
+                    # Metadaten
                     new["Mehrschichtiges Element"] = False
                     new["Promoted"] = True
+                    new["GUID Gruppe"] = mother_guid
                     for c in master_cols:
                         new[c] = df.at[i, c]
 
                     new_rows.append(new)
             else:
+                # Mutter bleibt alleine bestehen
                 df.at[i, "Mehrschichtiges Element"] = False
+                df.at[i, "Promoted"] = False
+                df.at[i, "GUID Gruppe"] = mother_guid
 
             i = j
         else:
@@ -167,10 +178,10 @@ def _process_df(
     if new_rows:
         df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
 
-    # 4) ... Sub-Spalten entfernen
+    # ===== 4) ... Sub-Spalten entfernen (Inhalte sind uebernommen) =====
     df.drop(columns=[c for c in df.columns if c.endswith(" Sub")], inplace=True, errors="ignore")
 
-    # 5) Restbereinigung
+    # ===== 5) Restbereinigung =====
     if "Unter Terrain" in df.columns:
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
     if "eBKP-H" in df.columns:
@@ -184,25 +195,7 @@ def _process_df(
 
     df.reset_index(drop=True, inplace=True)
 
-    # 5a) Optional: Zeilen nach Typ (Spalte/Werte) loeschen (Scope beachtend)
-    if drop_by_type:
-        type_col, type_values = drop_by_type
-        if type_col in df.columns and type_values:
-            _vals = {str(v).strip().lower() for v in type_values if str(v).strip()}
-            def _match(v):
-                if _is_na(v):
-                    return False
-                return str(v).strip().lower() in _vals
-            mask = df[type_col].apply(_match)
-            if drop_scope == "subs_only":
-                # urspruengliche Subs existieren nach dem Promoten nicht mehr als solche → hier keine Wirkung
-                # Hinweis: Falls gewuenscht, vor dem Promoten markieren und separat loeschen.
-                mask = mask & (df["Mehrschichtiges Element"] == True)
-            elif drop_scope == "promoted_subs_only":
-                mask = mask & (df["Promoted"] == True)
-            df = df.loc[~mask].reset_index(drop=True)
-
-    # 6) Deduplizieren (GUID-identische Voll-Duplikate)
+    # ===== 6) Deduplizieren (exact duplicates je GUID) =====
     def _remove_exact_duplicates(d: pd.DataFrame) -> pd.DataFrame:
         if "GUID" not in d.columns:
             return d
@@ -214,16 +207,16 @@ def _process_df(
 
     df = _remove_exact_duplicates(df)
 
-    # 7) Standardisieren & Werte bereinigen
+    # ===== 7) Standardisieren & Werte bereinigen =====
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled=True, custom_chars="")
 
     return df
 
 
-# --------- Finale Auswertung ---------
+# ========= Auswertung =========
 def summarize_column(df: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Werte in Spalte zaehlen und prozentual ausweisen; leere ausblenden."""
+    """Werte in Spalte zaehlen und Anteil ausweisen; leere Werte ausblenden."""
     if col not in df.columns:
         return pd.DataFrame()
     s = df[col].astype(str).str.strip()
@@ -233,167 +226,150 @@ def summarize_column(df: pd.DataFrame, col: str) -> pd.DataFrame:
          .rename_axis(col)
          .reset_index(name="Anzahl")
     )
-    if len(s) > 0:
-        summary["Anteil %"] = (summary["Anzahl"] / len(s) * 100).round(2)
-    else:
-        summary["Anteil %"] = 0.0
+    total = int(summary["Anzahl"].sum()) if not summary.empty else 0
+    summary["Anteil %"] = (summary["Anzahl"] / total * 100).round(2) if total else 0.0
     return summary
 
 
-# --------- Streamlit App ---------
+# ========= Streamlit App =========
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
+    st.set_page_config(page_title="Vererbung & Mengenuebernahme", layout="wide")
     st.header("Vererbung & Mengenuebernahme")
 
     st.markdown("""
-    **Logik**  
-    1) eBKP-H der Mutter → an Subs vererben, wenn `eBKP-H Sub` nicht definiert ist.  
-    2) Generisch: Fuer jedes Basis/`... Sub`-Paar gilt **Sub bevorzugen, sonst Mutter**.  
-    3) Subs als Hauptzeilen promoten; vorhandene `... Sub`-Werte uebernehmen; Mutter droppen.  
-    4) 'Nicht klassifiziert', 'Keine Zuordnung', 'Nicht verfügbar' gelten als nicht definiert.
-
-    **Steuerung**  
-    - Auswahl: Sub-Zeilen droppen anhand eBKP-H.  
-    - Optionaler Typ-Filter (Spalte + Werte) nach Verarbeitung mit Scope.  
-    - Finale Auswertung: Spalte auswaehlen, Werte zusammenfassen → Button *Finalisieren*.  
+    **Ablauf**
+    1) Verarbeitung: eBKP-H Auswahl → Subs ignorieren (droppen) **waehrend** der Promotion.  
+    2) Filter (optional): **nach** der Verarbeitung eine Spalte und Werte waehlen und Zeilen entfernen.  
+    3) Finalisieren: Spalte fuer Zusammenfassung waehlen → Tabellen & Export.  
     """)
 
+    # --- Datei laden ---
     uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="vererbung_file_uploader")
     if not uploaded_file:
-        return
+        st.stop()
 
     try:
-        df = pd.read_excel(uploaded_file, engine="openpyxl")
+        df_raw = pd.read_excel(uploaded_file, engine="openpyxl")
     except Exception as e:
         st.error(f"Fehler beim Einlesen: {e}")
-        return
+        st.stop()
 
     st.subheader("Originale Daten (15 Zeilen)")
-    st.dataframe(df.head(15), use_container_width=True)
+    st.dataframe(df_raw.head(15), use_container_width=True)
 
-    # Kandidaten fuer eBKP-Dropdown
+    # Kandidaten fuer eBKP-H Dropdown
     ebkp_candidates = []
-    if "eBKP-H" in df.columns:
-        ebkp_candidates.extend(df["eBKP-H"].dropna().astype(str).str.strip().tolist())
-    if "eBKP-H Sub" in df.columns:
-        ebkp_candidates.extend(df["eBKP-H Sub"].dropna().astype(str).str.strip().tolist())
+    if "eBKP-H" in df_raw.columns:
+        ebkp_candidates.extend(df_raw["eBKP-H"].dropna().astype(str).str.strip().tolist())
+    if "eBKP-H Sub" in df_raw.columns:
+        ebkp_candidates.extend(df_raw["eBKP-H Sub"].dropna().astype(str).str.strip().tolist())
     ebkp_options = sorted({v for v in ebkp_candidates if v})
 
-    # Kandidaten fuer Typ-Filter-Spalte
-    type_col_options = ["-- keine --"] + [c for c in df.columns]
-
-    # ---------------- Formular: Verarbeitung (kein Auto-Run) ----------------
-    with st.form(key="vererbung_form"):
+    # ===== Formular 1: Verarbeitung steuern =====
+    with st.form(key="form_process"):
         sel_drop_values = st.multiselect(
-            "Sub-Zeilen droppen, wenn eBKP-H exakt gleich einem der folgenden Werte ist",
+            "Subs ignorieren (droppen), wenn eBKP-H gleich einem dieser Werte ist",
             options=ebkp_options,
             default=[],
-            help="Mehrfachauswahl moeglich. Exakter Textvergleich."
+            help="Exakter Textvergleich; wirkt waehrend der Promotion der Subs."
         )
+        btn_process = st.form_submit_button("Verarbeitung starten")
 
-        sel_type_col = st.selectbox(
-            "Spalte fuer Typ-Filter (optional, z. B. Material)",
-            options=type_col_options,
-            index=0
-        )
-
-        type_value_options = []
-        if sel_type_col and sel_type_col != "-- keine --" and sel_type_col in df.columns:
-            type_value_options = sorted({
-                v for v in df[sel_type_col].dropna().astype(str).str.strip().tolist() if v
-            })
-        sel_type_values = st.multiselect(
-            "Zeilen loeschen, wenn Typ-Wert gleich ist (nach Verarbeitung angewandt)",
-            options=type_value_options,
-            default=[],
-            help="Exakter Textvergleich; mehrere moeglich."
-        )
-
-        scope_label = st.radio(
-            "Geltungsbereich des Typ-Filters",
-            options=["alle Zeilen", "nur urspruengliche Subs", "nur promotete Subs"],
-            horizontal=True,
-            index=0
-        )
-        scope_map = {
-            "alle Zeilen": "all",
-            "nur urspruengliche Subs": "subs_only",
-            "nur promotete Subs": "promoted_subs_only",
-        }
-
-        # Finale Auswertung: Spalte fuer Zusammenfassung (wird NACH Verarbeitung genutzt)
-        final_summary_col = st.selectbox(
-            "Spalte fuer finale Zusammenfassung (Dropdown, optional)",
-            options=["-- keine --"] + list(df.columns),
-            index=0
-        )
-
-        run = st.form_submit_button("Verarbeitung starte")
-
-    # ---------------- Ausfuehrung bei Button-Klick ----------------
-    if run:
+    if btn_process:
         with st.spinner("Verarbeitung laeuft ..."):
-            drop_by_type_arg = None
-            if sel_type_col and sel_type_col != "-- keine --" and sel_type_values:
-                drop_by_type_arg = (sel_type_col, sel_type_values)
-
-            df_clean = _process_df(
-                df.copy(),
-                drop_sub_values=sel_drop_values,
-                drop_by_type=drop_by_type_arg,
-                drop_scope=scope_map.get(scope_label, "all"),
-            )
+            df_clean = _process_df(df_raw.copy(), drop_sub_values=sel_drop_values)
             df_clean = convert_quantity_columns(df_clean)
 
-        st.subheader("Bereinigte Daten (15 Zeilen)")
-        st.dataframe(df_clean.head(15), use_container_width=True)
+        st.session_state["df_clean"] = df_clean.copy()
+        st.session_state["df_active"] = df_clean.copy()  # aktive Tabelle fuer nachgelagerte Schritte
 
-        # Export bereinigte Daten
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            df_clean.to_excel(writer, index=False, sheet_name="Bereinigt")
-        output.seek(0)
-        file_name = f"{(supplement_name or '').strip() or 'default'}_vererbung_mengen.xlsx"
+    # Wenn noch nicht verarbeitet wurde, nichts weiter anzeigen
+    if "df_active" not in st.session_state:
+        st.info("Bitte zuerst die Verarbeitung starten.")
+        st.stop()
 
-        st.download_button(
-            "Bereinigte Datei herunterladen",
-            data=output,
-            file_name=file_name,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    df_active = st.session_state["df_active"]
+
+    st.subheader("Bereinigte Daten (15 Zeilen)")
+    st.dataframe(df_active.head(15), use_container_width=True)
+
+    # Export bereinigte Daten (aktueller aktiver Stand)
+    out_clean = io.BytesIO()
+    with pd.ExcelWriter(out_clean, engine="openpyxl") as writer:
+        df_active.to_excel(writer, index=False, sheet_name="Bereinigt")
+    out_clean.seek(0)
+    st.download_button(
+        "Aktuelle bereinigte Datei herunterladen",
+        data=out_clean,
+        file_name=f"{(supplement_name or '').strip() or 'default'}_vererbung_mengen.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    # ===== Formular 2: Nachgelagerter Filter (eine Spalte) =====
+    st.markdown("---")
+    st.subheader("Filter nach Verarbeitung (optional)")
+    with st.form(key="form_filter"):
+        col_options = ["-- Spalte waehlen --"] + list(df_active.columns)
+        sel_col = st.selectbox("Spalte fuer Filter", options=col_options, index=0)
+        value_options = []
+        if sel_col and sel_col != "-- Spalte waehlen --":
+            # Auswahlwerte aus aktueller aktiver Tabelle
+            value_options = sorted({
+                v for v in df_active[sel_col].dropna().astype(str).str.strip().tolist() if v
+            })
+        sel_values = st.multiselect(
+            "Zeilen entfernen, wenn Wert gleich ist",
+            options=value_options,
+            default=[],
+            help="Exakter Textvergleich; mehrere Eintraege moeglich."
         )
+        btn_apply_filter = st.form_submit_button("Filter anwenden")
 
-        # ---------------- Finale Zusammenfassung (separater Button) ----------------
-        st.markdown("---")
-        st.subheader("Finale Auswertung")
-        with st.form(key="finalize_form"):
-            # Wahl der Spalte fuer die finale Zusammenfassung fest halten oder neu auswaehlen
-            final_col = st.selectbox(
-                "Spalte fuer Zusammenfassung",
-                options=["-- keine --"] + list(df_clean.columns),
-                index=(["-- keine --"] + list(df_clean.columns)).index(final_summary_col) if final_summary_col in df_clean.columns else 0,
-                help="Werte aus dieser Spalte werden gezaehlt und prozentual ausgewiesen."
-            )
-            do_finalize = st.form_submit_button("Finalisieren")
+    if btn_apply_filter:
+        if sel_col and sel_col != "-- Spalte waehlen --" and sel_values:
+            mask_drop = df_active[sel_col].astype(str).str.strip().isin(set(sel_values))
+            df_filtered = df_active.loc[~mask_drop].reset_index(drop=True)
+            st.session_state["df_active"] = df_filtered.copy()
+            df_active = df_filtered
+            st.success(f"Filter angewandt: {len(mask_drop[mask_drop].index)} Zeilen entfernt.")
+        else:
+            st.warning("Bitte Spalte und mindestens einen Wert waehlen.")
 
-        if do_finalize:
-            if final_col and final_col != "-- keine --":
-                summary_df = summarize_column(df_clean, final_col)
-                if not summary_df.empty:
-                    st.markdown(f"**Zusammenfassung fuer: {final_col}**")
-                    st.dataframe(summary_df, use_container_width=True)
+    # Vorschau nach Filter
+    st.dataframe(df_active.head(15), use_container_width=True)
 
-                    # Export Summary + Clean als Excel
-                    out2 = io.BytesIO()
-                    with pd.ExcelWriter(out2, engine="openpyxl") as writer:
-                        df_clean.to_excel(writer, index=False, sheet_name="Bereinigt")
-                        summary_df.to_excel(writer, index=False, sheet_name="Auswertung")
-                    out2.seek(0)
-                    st.download_button(
-                        "Bereinigte Datei + Auswertung herunterladen",
-                        data=out2,
-                        file_name=f"{(supplement_name or '').strip() or 'default'}_final.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                else:
-                    st.info("Keine Daten fuer die gewaehlte Spalte vorhanden.")
+    # ===== Formular 3: Finalisieren =====
+    st.markdown("---")
+    st.subheader("Finalisieren (Zusammenfassung & Export)")
+    with st.form(key="form_finalize"):
+        final_col = st.selectbox(
+            "Spalte fuer Zusammenfassung",
+            options=["-- Spalte waehlen --"] + list(df_active.columns),
+            index=0,
+            help="Werte werden gezaehlt und prozentual dargestellt."
+        )
+        btn_finalize = st.form_submit_button("Finalisieren")
+
+    if btn_finalize:
+        if final_col and final_col != "-- Spalte waehlen --":
+            summary_df = summarize_column(df_active, final_col)
+            if summary_df.empty:
+                st.info("Keine gueltigen Werte fuer die Zusammenfassung gefunden.")
             else:
-                st.warning("Bitte eine gueltige Spalte fuer die Zusammenfassung auswaehlen.")
+                st.markdown(f"**Zusammenfassung: {final_col}**")
+                st.dataframe(summary_df, use_container_width=True)
+
+                # Export: aktive Tabelle + Summary
+                out_final = io.BytesIO()
+                with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
+                    df_active.to_excel(writer, index=False, sheet_name="Bereinigt_Aktiv")
+                    summary_df.to_excel(writer, index=False, sheet_name="Auswertung")
+                out_final.seek(0)
+                st.download_button(
+                    "Bereinigte aktive Datei + Auswertung herunterladen",
+                    data=out_final,
+                    file_name=f"{(supplement_name or '').strip() or 'default'}_final.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
+        else:
+            st.warning("Bitte eine Spalte fuer die Zusammenfassung waehlen.")
