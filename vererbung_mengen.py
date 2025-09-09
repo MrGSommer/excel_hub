@@ -10,21 +10,7 @@ def _has_value(x) -> bool:
     return pd.notna(x) and str(x).strip() != ""
 
 
-def _is_undef(val: any) -> bool:
-    """eBKP-H-Wert gilt als 'nicht definiert'."""
-    if not _has_value(val):
-        return True
-    txt = str(val).strip().lower()
-    return (
-        txt == ""
-        or "icht klassifiziert" in txt
-        or "eine zuordnung" in txt
-        or "icht verfügbar" in txt
-    )
-
-
 def _is_na(x) -> bool:
-    """Sicherer NA-Check (verhindert bool-Kontext von pd.NA)."""
     try:
         return pd.isna(x)
     except Exception:
@@ -39,160 +25,117 @@ def _value_labels_with_counts(series: pd.Series) -> Dict[str, str]:
     return {val: f"{val} ({counts[val]})" for val in counts.index}
 
 
-# ========= Kernverarbeitung =========
+# ========= Kernverarbeitung (vektorisiert) =========
 def _process_df(
     df: pd.DataFrame,
     drop_sub_values: Optional[List[str]] = None,  # eBKP-H exakte Werte: nur Sub-Zeilen droppen
 ) -> pd.DataFrame:
     """
-    Ablauf:
+    Ablauf (performant, unveraenderte Funktionalitaet):
     - Master-Kontext an Subs vererben; eBKP-H der Mutter vererben, wenn 'eBKP-H Sub' undefiniert.
     - Generisch fuer Basis/'... Sub': 'Sub bevorzugen, sonst Mutter'.
     - Subs promoten; wenn mind. 1 Sub bleibt → Mutter droppen.
-    - GUID der Zeile bleibt Sub-GUID (falls vorhanden); 'GUID Gruppe' = GUID der Mutter.
-    - Nie 'GUID' oder 'GUID Sub' als Spalte loeschen; keine Deduplizierung ueber GUID.
+    - 'GUID' der Zeile bleibt Sub-GUID (Fallback GUID); 'GUID Gruppe' = GUID der Mutter.
+    - 'GUID Sub' bleibt als Spalte erhalten; keine Deduplizierung.
     """
     drop_set = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
+    cols = pd.Index(df.columns)
 
-    def _matches_drop_values(val: any) -> bool:
-        if _is_na(val):
-            return False
-        return str(val).strip().lower() in drop_set if drop_set else False
+    # Master-Kontext & Sub-Paare
+    master_cols = [c for c in ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain", "Typ"] if c in cols]
+    sub_pairs = sorted({c[:-4] for c in cols if c.endswith(" Sub") and c[:-4] in cols and c[:-4] != "GUID"})
 
-    # Master-Kontextspalten (falls vorhanden)
-    master_cols = ["Teilprojekt", "Gebäude", "Baufeld", "Geschoss", "Umbaustatus", "Unter Terrain", "Typ"]
-    master_cols = [c for c in master_cols if c in df.columns]
+    # Mutter/Sub-Flags
+    if master_cols:
+        is_mother = df[master_cols].notna().all(axis=1)
+        is_sub = df[master_cols].isna().all(axis=1)
+    else:
+        is_mother = pd.Series(False, index=df.index)
+        is_sub = pd.Series(False, index=df.index)
 
-    # Paare Basis / Sub (GUID bewusst ausschliessen)
-    sub_pairs = sorted({
-        base for c in df.columns
-        if c.endswith(" Sub") and (base := c[:-4]) in df.columns and base != "GUID"
-    })
+    # Gruppen-IDs (laufende Nummern ueber Muetter)
+    grp_id = is_mother.cumsum()
+    grp_id = grp_id.mask(grp_id.eq(0))  # vor erster Mutter -> NA
 
-    # Zeilentypen markieren
-    df["Mehrschichtiges Element"] = df.apply(
-        lambda row: all(pd.isna(row.get(c)) for c in master_cols), axis=1
-    )
-    if "GUID Gruppe" not in df.columns:
-        df["GUID Gruppe"] = pd.NA  # immer GUID der Mutter
+    # Meta-Spalten
+    df["Mehrschichtiges Element"] = is_sub
     df["Promoted"] = False
+    if "GUID Gruppe" not in df.columns:
+        df["GUID Gruppe"] = pd.NA
 
-    # ===== 1) Mutter-Kontext + eBKP-H vererben =====
-    i = 0
-    while i < len(df):
-        if all(pd.notna(df.at[i, c]) for c in master_cols):  # Mutter
-            mother_guid = df.at[i, "GUID"] if "GUID" in df.columns else pd.NA
-            df.at[i, "GUID Gruppe"] = mother_guid  # Mutter ist eigene Gruppe
+    # Mutter-GUID je Gruppe
+    if "GUID" in cols:
+        mother_guid_map = df.loc[is_mother, ["GUID"]].assign(grp=grp_id[is_mother]).set_index("grp")["GUID"]
+        df.loc[is_mother, "GUID Gruppe"] = df.loc[is_mother, "GUID"]
+    else:
+        mother_guid_map = pd.Series(dtype=object)
 
-            j = i + 1
-            while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
-                # a) Master-Kontext vererben
-                for c in master_cols:
-                    df.at[j, c] = df.at[i, c]
-                # b) eBKP-H vererben, falls 'eBKP-H Sub' nicht definiert
-                if "eBKP-H" in df.columns:
-                    mother_ebkp = df.at[i, "eBKP-H"]
-                    sub_ebkp_sub = df.at[j, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else pd.NA
-                    if _has_value(mother_ebkp) and _is_undef(sub_ebkp_sub):
-                        df.at[j, "eBKP-H"] = mother_ebkp
-                j += 1
-            i = j
-        else:
-            i += 1
+    # ---------- (1) Master-Kontext + eBKP-H vererben ----------
+    if not grp_id.isna().all():
+        if master_cols:
+            mother_ctx = df.loc[is_mother, master_cols].assign(grp=grp_id[is_mother]).set_index("grp")
+            for c in master_cols:
+                df.loc[is_sub, c] = grp_id[is_sub].map(mother_ctx[c])
 
-    # ===== 2) Sub bevorzugen, sonst Mutter =====
-    i = 0
-    while i < len(df):
-        if all(pd.notna(df.at[i, c]) for c in master_cols):
-            j = i + 1
-            sub_idxs = []
-            while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
-                sub_idxs.append(j)
-                j += 1
-            for idx in sub_idxs:
-                for base in sub_pairs:
-                    sub_col = f"{base} Sub"
-                    if sub_col in df.columns and _has_value(df.at[idx, sub_col]):
-                        df.at[idx, base] = df.at[idx, sub_col]
-                    else:
-                        df.at[idx, base] = df.at[i, base]
-            i = j
-        else:
-            i += 1
-
-    # ===== 3) Subs promoten; Mutter ggf. droppen (nur Subs gem. eBKP-H droppen) =====
-    new_rows = []
-    drop_idx = []
-    i = 0
-    while i < len(df):
-        if all(pd.notna(df.at[i, c]) for c in master_cols):  # Mutter
-            mother_guid = df.at[i, "GUID"] if "GUID" in df.columns else pd.NA
-            j = i + 1
-            sub_idxs = []
-            while j < len(df) and df.at[j, "Mehrschichtiges Element"]:
-                sub_idxs.append(j)
-                j += 1
-
-            # a) Nur Sub-Zeilen gem. eBKP-H-Liste droppen (exakt)
-            if drop_set:
-                for idx in list(sub_idxs):
-                    ebkp_sub = df.at[idx, "eBKP-H Sub"] if "eBKP-H Sub" in df.columns else None
-                    ebkp     = df.at[idx, "eBKP-H"] if "eBKP-H" in df.columns else None
-                    if _matches_drop_values(ebkp_sub) or _matches_drop_values(ebkp):
-                        drop_idx.append(idx)   # Sub wird physisch entfernt (gewollt)
-                        sub_idxs.remove(idx)
-
-            # b) Wenn mind. 1 Sub bleibt → Mutter droppen und Subs promoten
-            if sub_idxs:
-                drop_idx.append(i)  # Mutter droppen ist erlaubt
-                for idx in sub_idxs:
-                    new = df.loc[idx].copy()
-
-                    # GUID der neuen (promoteten) Zeile = GUID Sub, sonst Fallback
-                    if "GUID Sub" in df.columns and _has_value(df.at[idx, "GUID Sub"]):
-                        new["GUID"] = df.at[idx, "GUID Sub"]
-                    elif "GUID" in df.columns:
-                        new["GUID"] = df.at[idx, "GUID"]
-
-                    # Sub/Basis-Paare finalisieren
-                    for base in sub_pairs:
-                        sub_col = f"{base} Sub"
-                        if sub_col in df.columns and _has_value(df.at[idx, sub_col]):
-                            new[base] = df.at[idx, sub_col]
-                        else:
-                            new[base] = df.at[i, base]
-
-                    # Metadaten
-                    new["Mehrschichtiges Element"] = False
-                    new["Promoted"] = True
-                    new["GUID Gruppe"] = mother_guid  # Gruppen-ID = Mutter-GUID
-                    for c in master_cols:
-                        new[c] = df.at[i, c]
-
-                    new_rows.append(new)
+        # eBKP-H der Mutter, wenn 'eBKP-H Sub' undefiniert
+        if "eBKP-H" in cols:
+            mother_ebkp_map = df.loc[is_mother, ["eBKP-H"]].assign(grp=grp_id[is_mother]).set_index("grp")["eBKP-H"]
+            if "eBKP-H Sub" in cols:
+                sub_ebkp = df["eBKP-H Sub"].astype(str).str.strip()
+                undef_mask = df["eBKP-H Sub"].isna() | sub_ebkp.eq("") | sub_ebkp.str.contains(
+                    r"(?i)(icht klassifiziert|eine zuordnung|icht verfügbar)", na=False
+                )
             else:
-                # Mutter bleibt alleine bestehen
-                df.at[i, "Mehrschichtiges Element"] = False
-                df.at[i, "Promoted"] = False
-                df.at[i, "GUID Gruppe"] = mother_guid
+                undef_mask = pd.Series(False, index=df.index)
+            mask_set = is_sub & undef_mask
+            df.loc[mask_set, "eBKP-H"] = grp_id[mask_set].map(mother_ebkp_map)
 
-            i = j
+    # ---------- (2) Sub bevorzugen, sonst Mutter ----------
+    for base in sub_pairs:
+        sub_col = f"{base} Sub"
+        has_sub_val = df[sub_col].notna() & df[sub_col].astype(str).str.strip().ne("")
+        if not grp_id.isna().all():
+            mother_base_map = df.loc[is_mother, [base]].assign(grp=grp_id[is_mother]).set_index("grp")[base]
+            mother_vals = grp_id.map(mother_base_map)
         else:
-            i += 1
+            mother_vals = pd.Series(pd.NA, index=df.index)
+        tgt = is_sub
+        df.loc[tgt, base] = df.loc[tgt, sub_col].where(has_sub_val[tgt], other=mother_vals[tgt])
 
-    # Physische Drops anwenden (nur Mutter + explizit ignorierte Subs)
-    if drop_idx:
-        df.drop(index=drop_idx, inplace=True)
-        df.reset_index(drop=True, inplace=True)
-    # Promotete Subs anhaengen
-    if new_rows:
-        df = pd.concat([df, pd.DataFrame(new_rows)], ignore_index=True)
+    # ---------- (3) Sub-Drop gem. eBKP-H + Promotion ----------
+    if drop_set:
+        ebkp_sub_norm = df["eBKP-H Sub"].astype(str).str.strip().str.lower() if "eBKP-H Sub" in cols else pd.Series("", index=df.index)
+        ebkp_norm = df["eBKP-H"].astype(str).str.strip().str.lower() if "eBKP-H" in cols else pd.Series("", index=df.index)
+        drop_sub_mask = is_sub & (ebkp_sub_norm.isin(drop_set) | ebkp_norm.isin(drop_set))
+    else:
+        drop_sub_mask = pd.Series(False, index=df.index)
 
-    # ===== 4) ... Sub-Spalten entfernen, aber 'GUID Sub' behalten =====
+    keep_sub_mask = is_sub & ~drop_sub_mask & grp_id.notna()
+    grps_with_kept_sub = pd.Index(grp_id[keep_sub_mask].unique()).dropna()
+    drop_mother_mask = is_mother & grp_id.isin(grps_with_kept_sub)
+
+    # Promoted-Zeilen erzeugen
+    promoted = df.loc[keep_sub_mask].copy()
+    if "GUID Sub" in cols:
+        guid_sub_ok = promoted["GUID Sub"].notna() & promoted["GUID Sub"].astype(str).str.strip().ne("")
+        promoted["GUID"] = promoted["GUID"].where(~guid_sub_ok, promoted["GUID Sub"])
+    promoted["Mehrschichtiges Element"] = False
+    promoted["Promoted"] = True
+    if not mother_guid_map.empty:
+        promoted["GUID Gruppe"] = grp_id[keep_sub_mask].map(mother_guid_map).values
+
+    # Original-Muetter + gedroppte Subs entfernen; Promotions anhaengen
+    to_drop_idx = df.index[drop_mother_mask | drop_sub_mask]
+    if len(to_drop_idx) > 0:
+        df = df.drop(index=to_drop_idx)
+    if not promoted.empty:
+        df = pd.concat([df, promoted], ignore_index=True)
+
+    # ---------- (4) Sub-Spalten entfernen, aber 'GUID Sub' behalten ----------
     subs_to_drop = [c for c in df.columns if c.endswith(" Sub") and c != "GUID Sub"]
     df.drop(columns=subs_to_drop, inplace=True, errors="ignore")
 
-    # ===== 5) Restbereinigung =====
+    # ---------- (5) Restbereinigung ----------
     if "Unter Terrain" in df.columns:
         df.loc[df["Unter Terrain"] == "oi", "Unter Terrain"] = pd.NA
     if "eBKP-H" in df.columns:
@@ -206,9 +149,9 @@ def _process_df(
 
     df.reset_index(drop=True, inplace=True)
 
-    # ===== 6) KEIN Deduplizieren ueber GUID (GUIDs nie verlieren) =====
+    # (6) keine Deduplizierung ueber GUID
 
-    # ===== 7) Standardisieren & Werte bereinigen =====
+    # ---------- (7) Standardisieren & Werte bereinigen ----------
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled=True, custom_chars="")
 
@@ -217,13 +160,12 @@ def _process_df(
 
 # ========= Streamlit App =========
 def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
-    st.set_page_config(page_title="Vererbung & Mengenuebernahme", layout="wide")
     st.header("Vererbung & Mengenuebernahme")
 
     st.markdown("""
     **Ablauf**
     1) Nur **Subs** anhand eBKP-H **ignorieren** (droppen) → **Verarbeitung starte**.  
-    2) **Filter (ÜBERSCHRIFTEN)**: Spalte waehlen → Dropdown mit zusammengefassten Werten erscheint.  
+    2) **Filter (UeBERSCHRIFTEN)**: Spalte waehlen → Dropdown mit zusammengefassten Werten erscheint.  
     3) **Finalisieren**: Auswahl anwenden (Zeilen droppen), Vorschau aktualisieren, **Download** der finalisierten Datei.  
     """)
 
@@ -241,13 +183,15 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     st.subheader("Originale Daten (15 Zeilen)")
     st.dataframe(df_raw.head(15), use_container_width=True)
 
-    # eBKP-H Auswahl fuer das Ignorieren von Subs
-    ebkp_candidates = []
-    if "eBKP-H" in df_raw.columns:
-        ebkp_candidates.extend(df_raw["eBKP-H"].dropna().astype(str).str.strip().tolist())
-    if "eBKP-H Sub" in df_raw.columns:
-        ebkp_candidates.extend(df_raw["eBKP-H Sub"].dropna().astype(str).str.strip().tolist())
-    ebkp_options = sorted({v for v in ebkp_candidates if v})
+    # eBKP-H Auswahl
+    ebkp_options = sorted(
+        pd.Series(
+            pd.concat([
+                df_raw.get("eBKP-H", pd.Series(dtype=object)),
+                df_raw.get("eBKP-H Sub", pd.Series(dtype=object))
+            ])
+        ).dropna().astype(str).str.strip().unique()
+    )
 
     # ===== Formular 1: Verarbeitung (nur Subs droppen) =====
     with st.form(key="form_process_001"):
@@ -263,45 +207,45 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
         with st.spinner("Verarbeitung laeuft ..."):
             df_processed = _process_df(df_raw.copy(), drop_sub_values=sel_drop_values)
             df_processed = convert_quantity_columns(df_processed)
-
-        # Session: verarbeitete Tabelle (Start fuer Filter)
         st.session_state["df_active"] = df_processed.copy()
+        st.session_state["finalized"] = False  # Reset Finalisierungs-Flag
 
-    # Wenn noch nicht verarbeitet wurde, stoppen
+    # Verarbeitung muss erfolgt sein
     if "df_active" not in st.session_state:
         st.info("Bitte zuerst die Verarbeitung starten.")
         st.stop()
 
-    # Aktueller Stand
     df_active = st.session_state["df_active"]
 
-    st.subheader("Bereinigte Daten (15 Zeilen)")
-    st.dataframe(df_active.head(15), use_container_width=True)
+    # Nur zeigen, wenn noch nicht finalisiert
+    if not st.session_state.get("finalized", False):
+        st.subheader("Bereinigte Daten (15 Zeilen)")
+        st.dataframe(df_active.head(15), use_container_width=True)
 
-    # Direkter Download der verarbeiteten Datei (ohne weitere Filter)
-    out_proc = io.BytesIO()
-    with pd.ExcelWriter(out_proc, engine="openpyxl") as writer:
-        df_active.to_excel(writer, index=False, sheet_name="Bereinigt")
-    out_proc.seek(0)
-    st.download_button(
-        "Download: Bereinigte Datei (ohne weitere Verarbeitung)",
-        data=out_proc,
-        file_name=f"{(supplement_name or '').strip() or 'default'}_bereinigt.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="dl_bereinigt_only_001"
-    )
+        out_proc = io.BytesIO()
+        with pd.ExcelWriter(out_proc, engine="openpyxl") as writer:
+            df_active.to_excel(writer, index=False, sheet_name="Bereinigt")
+        out_proc.seek(0)
+        st.download_button(
+            "Download: Bereinigte Datei (ohne weitere Verarbeitung)",
+            data=out_proc,
+            file_name=f"{(supplement_name or '').strip() or 'default'}_bereinigt.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_bereinigt_only_001"
+        )
 
-    # ===== Bereich 2: Filter (ÜBERSCHRIFTEN) =====
+    # ===== Bereich 2: Filter (UeBERSCHRIFTEN) =====
     st.markdown("---")
-    st.subheader("Filter von Elementen und droppen")
+    st.subheader("Filter (UeBERSCHRIFTEN)")
 
-    # Spaltenauswahl fuer den Filter (keine Live-Verarbeitung)
     with st.form(key="form_filter_select_002"):
         col_options = ["-- Spalte waehlen --"] + list(df_active.columns)
         filter_col = st.selectbox("Spalte waehlen", options=col_options, index=0, key="sel_filter_col_002")
         btn_prepare = st.form_submit_button("Werte anzeigen")
 
-    # Werte-Dropdown erst nach Klick auf "Werte anzeigen"
+    if btn_prepare:
+        st.session_state["finalized"] = False  # Reset, falls neuer Filterlauf
+
     if btn_prepare and filter_col and filter_col != "-- Spalte waehlen --":
         labels_map = _value_labels_with_counts(df_active[filter_col])
         options_labels = [labels_map[k] for k in sorted(labels_map.keys(), key=lambda x: x.lower())]
@@ -323,23 +267,25 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
                 mask_drop = df_active[filter_col].astype(str).str.strip().isin(set(selected_values_raw))
                 df_after_filter = df_active.loc[~mask_drop].reset_index(drop=True)
                 st.session_state["df_active"] = df_after_filter.copy()
-                df_active = df_after_filter
+                st.session_state["finalized"] = True
                 st.success(f"Finalisiert: {mask_drop.sum()} Zeilen entfernt.")
-
-                st.subheader("Finalisierte Vorschau (15 Zeilen)")
-                st.dataframe(df_active.head(15), use_container_width=True)
-
-                # Download fuer finalisierte (gefilterte) Datei – Pflichtbutton nach letztem Schritt
-                out_final = io.BytesIO()
-                with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
-                    df_active.to_excel(writer, index=False, sheet_name="Bereinigt_Final")
-                out_final.seek(0)
-                st.download_button(
-                    "Download: Bereinigte Datei (finalisiert)",
-                    data=out_final,
-                    file_name=f"{(supplement_name or '').strip() or 'default'}_bereinigt_final.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_bereinigt_final_003"
-                )
             else:
                 st.warning("Keine Werte ausgewaehlt. Keine Aenderung vorgenommen.")
+
+    # --- Finalisierte Ausgabe unten, wenn finalisiert ---
+    if st.session_state.get("finalized", False):
+        df_final = st.session_state["df_active"]
+        st.subheader("Finalisierte Vorschau (15 Zeilen)")
+        st.dataframe(df_final.head(15), use_container_width=True)
+
+        out_final = io.BytesIO()
+        with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
+            df_final.to_excel(writer, index=False, sheet_name="Bereinigt_Final")
+        out_final.seek(0)
+        st.download_button(
+            "Download: Bereinigte Datei (finalisiert)",
+            data=out_final,
+            file_name=f"{(supplement_name or '').strip() or 'default'}_bereinigt_final.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_bereinigt_final_003"
+        )
