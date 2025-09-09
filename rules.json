@@ -1,0 +1,17 @@
+[
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
+      {"col": "Material", "op": "contains", "value": "Stahlbeton"},
+      {"col": "Unter Terrain", "op": "equals", "value": "x"}
+    ],
+    "then": { "set": {"eBKP-H": "__KEEP__"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
+      {"col": "Material", "op": "contains", "value": "Daemmung"}
+    ],
+    "then": { "set": {"eBKP-H": "E01.02"} }
+  }
+]
