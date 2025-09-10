@@ -577,7 +577,7 @@ def app():
 
     df_step1 = st.session_state["df_step1"]
     st.markdown("**Schritt 1 – Bereinigt (Top 15)**")
-    st.dataframe(df_step1.head(15), width="stretch"=True)
+    st.dataframe(df_step1.head(15), width="stretch")
     out_step1 = io.BytesIO()
     with pd.ExcelWriter(out_step1, engine="openpyxl") as writer:
         df_step1.to_excel(writer, index=False, sheet_name="Bereinigt_Step1")
@@ -650,7 +650,7 @@ def app():
 
     df_step2 = st.session_state["df_step2"]
     st.markdown("**Schritt 2 – nach Sub-Drop & Material-Filter (Top 15)**")
-    st.dataframe(df_step2.head(15), width="stretch"=True)
+    st.dataframe(df_step2.head(15), width="stretch")
     out_step2 = io.BytesIO()
     with pd.ExcelWriter(out_step2, engine="openpyxl") as writer:
         df_step2.to_excel(writer, index=False, sheet_name="Step2_no_rules")
@@ -680,7 +680,7 @@ def app():
         if debug_rules:
             dbg_summary, dbg_samples = _evaluate_rules_debug(df_input, rules_all, sample_rows=10)
             st.caption(f"Regel-Debug: {total_rules} Regeln geladen. Gesamt-Treffer: {int(dbg_summary['match_count'].sum())}.")
-            st.dataframe(dbg_summary, width="stretch"=True)
+            st.dataframe(dbg_summary, width="stretch")
 
         before = len(df_input)
         df_final = apply_materialization_rules(
@@ -708,7 +708,7 @@ def app():
     if st.session_state["df_final"] is not None:
         df_final = st.session_state["df_final"]
         st.markdown("**Finalisiert (Top 15)**")
-        st.dataframe(df_final.head(15), width="stretch"=True)
+        st.dataframe(df_final.head(15), width="stretch")
         out_final = io.BytesIO()
         with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
             df_final.to_excel(writer, index=False, sheet_name="Final_Step3")
