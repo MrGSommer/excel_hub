@@ -59,5 +59,47 @@
     { "col": "eBKP-H",  "op": "contains", "value": "C0" }
   ],
   "then": { "action": "drop" }
-}
+},
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.02"},
+      {"col": "Material", "op": "contains", "value": "Holz"}
+    ],
+    "then": { "set": {"eBKP-H": "G03.02 Wandbekleidung"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.02"},
+      {"col": "Material", "op": "contains", "value": "Platten"}
+    ],
+    "then": { "set": {"eBKP-H": "G03.02 Wandbekleidung"} }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
+      {"col": "Material", "op": "contains", "value": "Naturstein"}
+    ],
+    "then": { "action": "drop" }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
+      {"col": "Material", "op": "contains", "value": "Metall"}
+    ],
+    "then": { "action": "drop" }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
+      {"col": "Material", "op": "contains", "value": "Holz"}
+    ],
+    "then": { "action": "drop" }
+  },
+  {
+    "when": [
+      {"col": "eBKP-H", "op": "contains", "value": "C02.01"},
+      {"col": "Material", "op": "contains", "value": "ALG Allgemeines Material"}
+    ],
+    "then": { "set": {"Material": "Tragschicht unbekannt"} }
+  }
 ]
