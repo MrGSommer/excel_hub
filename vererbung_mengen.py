@@ -1,5 +1,4 @@
 import io
-import os
 import re
 import json
 import unicodedata
@@ -10,25 +9,13 @@ from typing import Optional, List, Dict, Any
 import pandas as pd
 import streamlit as st
 
-# Optional: YAML fuer Regeln
-try:
-    import yaml
-except Exception:
-    yaml = None
-
-# Optional: HTTP-Download fuer Regeln (RAW-URL)
-try:
-    import requests
-except Exception:
-    requests = None
-
-# Eigene Utilities (mussen vorhanden sein)
+# Eigene Utilities (muessen vorhanden sein)
 from excel_utils import clean_columns_values, rename_columns_to_standard, convert_quantity_columns
 
 
 # ========= Text-Normalisierung (Diakritik & Schweizer 'ss') =========
 def _fold_text(t: Any) -> str:
-    """Trim, lower, Diakritik entfernen, ß->ss (Schweizer Schreibweise)."""
+    """Trim, lower, Diakritik entfernen, ss-Schreibweise."""
     if t is None:
         return ""
     t = str(t).strip().lower().replace("ß", "ss")
@@ -55,169 +42,7 @@ def _value_labels_with_counts_multi(series_list: List[pd.Series]) -> Dict[str, s
     return {val: f"{val} ({counts[val]})" for val in counts.index}
 
 
-# ========= Materialisierungs-Regeln =========
-@dataclass
-class _Cond:
-    col: str
-    op: str
-    value: Any
-    case_insensitive: bool = True  # wird durch _fold_text ohnehin abgedeckt
-
-
-def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
-    col = cond.col
-    if not col or col not in df.columns:
-        return pd.Series(False, index=df.index)
-
-    s_fold = _norm_series(df[col])
-    op = str(cond.op or "equals").lower()
-    val = cond.value
-    val_folded = _fold_text(val) if isinstance(val, str) else val
-
-    # Numerische Vergleiche (arbeitet auf dem Original-Serien-Typ, nicht auf s_fold)
-    if op in ("lt", "le", "gt", "ge"):
-        s_num = pd.to_numeric(df[col], errors="coerce")
-        try:
-            v = float(val)
-        except Exception:
-            return pd.Series(False, index=df.index)
-        if op == "lt":
-            return s_num.lt(v)
-        if op == "le":
-            return s_num.le(v)
-        if op == "gt":
-            return s_num.gt(v)
-        if op == "ge":
-            return s_num.ge(v)
-            
-    if op in ("eq", "equals"):
-        if isinstance(val, str) and val_folded == "":
-            return s_fold.eq("") | df[col].isna()
-        return s_fold.eq(val_folded)
-
-    if op in ("neq", "not_equals"):
-        if isinstance(val, str) and val_folded == "":
-            return ~(s_fold.eq("") | df[col].isna())
-        return ~s_fold.eq(val_folded)
-
-    if op in ("contains", "icontains"):
-        if val is None:
-            return pd.Series(False, index=df.index)
-        return s_fold.str.contains(re.escape(val_folded), na=False)
-
-    if op in ("in",):
-        vals = [(_fold_text(v) if isinstance(v, str) else v) for v in (val or [])]
-        return s_fold.isin(vals)
-
-    if op in ("regex", "matches"):
-        try:
-            return s_fold.str.contains(val, flags=re.IGNORECASE, regex=True, na=False)
-        except Exception:
-            return pd.Series(False, index=df.index)
-
-    return pd.Series(False, index=df.index)
-
-
-def apply_materialization_rules(
-    df: pd.DataFrame,
-    rules: List[Dict[str, Any]],
-    first_match_wins: bool = False
-) -> pd.DataFrame:
-    """
-    Wendet Materialisierungs-/Transformationsregeln auf einen DataFrame an.
-
-    Regelstruktur (Beispiel):
-    {
-      "when": [
-        {"col": "Dicke (m)", "op": "le", "value": 0.04},
-        {"col": "Material",  "op": "contains", "value": "Daemmung"}
-      ],
-      "then": {
-        "action": "drop",            # alternativ: "drop": true
-        "set": { "SpalteX": "Wert" } # optional; wird ignoriert, wenn action=drop
-      }
-    }
-
-    Parameter:
-      df               : Eingangs-DataFrame
-      rules            : Liste von Regeln im oben beschriebenen Format
-      first_match_wins : Wenn True, werden Zeilen, die von einer Regel getroffen wurden,
-                         für nachfolgende Regeln nicht weiter berücksichtigt (ausgenommen
-                         gedroppte Zeilen, die ohnehin entfernt sind).
-
-    Rueckgabe:
-      Neuer DataFrame mit angewendeten Regeln.
-    """
-    if df is None or df.empty or not rules:
-        return df
-
-    out = df.copy()
-
-    # Mask, die steuert, welche Zeilen fuer nachfolgende Regeln "noch frei" sind
-    # (nur relevant, wenn first_match_wins=True)
-    active_mask = pd.Series(True, index=out.index)
-
-    for rule in rules:
-        conds = rule.get("when", []) or []
-        then_raw = rule.get("then", {}) or {}
-        set_map: Dict[str, Any] = (then_raw.get("set") or {})
-
-        # Drop-Action erkennen (bool oder "drop"-String)
-        drop_action = False
-        act = then_raw.get("action")
-        if isinstance(act, str) and act.strip().lower() == "drop":
-            drop_action = True
-        if bool(then_raw.get("drop", False)):
-            drop_action = True
-
-        if not conds and not drop_action and not set_map:
-            # Leere Regel bewirkt nichts
-            continue
-
-        # Bedingungsmaske ueber vorhandene Helferfunktion aufbauen
-        try:
-            mask = _build_condition_mask(out, conds) if conds else pd.Series(True, index=out.index)
-            # Nur aktive Zeilen beruecksichtigen, falls first_match_wins
-            if first_match_wins:
-                mask = mask & active_mask
-        except Exception:
-            # Falls eine schlecht definierte Regel crasht, ueberspringen wir sie robust
-            continue
-
-        idx = out.index[mask]
-        if len(idx) == 0:
-            continue
-
-        # 1) Drop zuerst anwenden (hat Vorrang vor Set)
-        if drop_action:
-            out = out.drop(index=idx)
-
-            # active_mask an neuen Index anpassen
-            if first_match_wins:
-                # Nach Drop existieren die Zeilen nicht mehr; active_mask auf neuen Index reindizieren
-                active_mask = active_mask.reindex(out.index).fillna(False)
-            # Nach Drop mit naechster Regel fortfahren
-            continue
-
-        # 2) Set-Operationen fuer getroffene Zeilen
-        if set_map:
-            # Nur vorhandene Spalten setzen; "__KEEP__" als No-Op behandeln
-            cols_present = [k for k in set_map.keys() if k in out.columns]
-            for k in cols_present:
-                v = set_map[k]
-                if v == "__KEEP__":
-                    continue
-                out.loc[idx, k] = v
-
-        # 3) first_match_wins: getroffene Zeilen fuer weitere Regeln sperren
-        if first_match_wins:
-            active_mask.loc[idx] = False
-
-    return out
-
-
-
-# ========= Regeln laden =========
+# ========= Regeln laden (JSON-only) =========
 def parse_rules_text(text: str) -> list:
     """Erwartet JSON: Liste von Regeln ODER Objekt mit Key 'rules' (Liste)."""
     if not text or not str(text).strip():
@@ -230,7 +55,6 @@ def parse_rules_text(text: str) -> list:
             st.error(f"rules.json ist kein gueltiges JSON: {e}")
         return []
 
-    # Liste direkt oder { "rules": [...] }
     rules = []
     if isinstance(data, list):
         rules = data
@@ -241,8 +65,7 @@ def parse_rules_text(text: str) -> list:
             st.warning("rules.json geladen, aber keine Liste oder 'rules'-Liste gefunden.")
         return []
 
-    # Minimal-Validierung jedes Objekts
-    valid_ops = {"eq","equals","neq","not_equals","contains","icontains","in","regex","matches","lt","le","gt","ge"}
+    valid_ops = {"eq","equals","neq","not_equals","contains","icontains","in","regex","matches","lt","le","gt","ge","checked"}
     cleaned = []
     for i, r in enumerate(rules):
         if not isinstance(r, dict):
@@ -263,9 +86,8 @@ def parse_rules_text(text: str) -> list:
             cleaned.append(r)
         else:
             if "st" in globals():
-                st.caption(f"Regel {i} uebersprungen: ungueltes Format/Operator.")
+                st.caption(f"Regel {i} uebersprungen: ungueltiges Format/Operator.")
     return cleaned
-
 
 
 def load_rules_from_repo(filename: str = "rules.json") -> list:
@@ -293,6 +115,225 @@ def load_rules_from_repo(filename: str = "rules.json") -> list:
         return []
 
 
+# ========= Materialisierungs-Regeln =========
+@dataclass
+class _Cond:
+    col: str
+    op: str
+    value: Any
+    case_insensitive: bool = True  # durch _fold_text abgedeckt
+
+
+def _apply_single_condition(df: pd.DataFrame, cond: _Cond) -> pd.Series:
+    """Wendet eine Einzelbedingung an. Unterstuetzt String-, Regex- und numerische Operatoren."""
+    col = cond.col
+    if not col or col not in df.columns:
+        return pd.Series(False, index=df.index)
+
+    s_fold = _norm_series(df[col])
+    op = str(cond.op or "equals").lower()
+    val = cond.value
+    val_folded = _fold_text(val) if isinstance(val, str) else val
+
+    # Numerische Vergleiche
+    if op in ("lt", "le", "gt", "ge"):
+        s_num = pd.to_numeric(df[col], errors="coerce")
+        try:
+            v = float(val)
+        except Exception:
+            return pd.Series(False, index=df.index)
+        if op == "lt":
+            return s_num.lt(v)
+        if op == "le":
+            return s_num.le(v)
+        if op == "gt":
+            return s_num.gt(v)
+        if op == "ge":
+            return s_num.ge(v)
+
+    # Häkchen/Ja/True/1
+    if op in ("checked",):
+        s_raw = df[col]
+        s_fold2 = _norm_series(s_raw)
+        s_num = pd.to_numeric(s_raw, errors="coerce")
+        return (
+            s_fold2.isin({"x", "ja", "true", "wahr", "y", "1"})
+            | s_num.eq(1)
+            | (s_raw == True)  # noqa: E712
+        )
+
+    # Gleichheit
+    if op in ("eq", "equals"):
+        if isinstance(val, str) and val_folded == "":
+            return s_fold.eq("") | df[col].isna()
+        if isinstance(val, str) and val_folded in {"x", "ja", "true", "wahr", "y", "1"}:
+            s_num = pd.to_numeric(df[col], errors="coerce")
+            return (
+                s_fold.isin({"x", "ja", "true", "wahr", "y", "1"})
+                | s_num.eq(1)
+                | (df[col] == True)  # noqa: E712
+            )
+        return s_fold.eq(val_folded)
+
+    # Ungleichheit
+    if op in ("neq", "not_equals"):
+        if isinstance(val, str) and val_folded == "":
+            return ~(s_fold.eq("") | df[col].isna())
+        return ~s_fold.eq(val_folded)
+
+    # Teilstring
+    if op in ("contains", "icontains"):
+        if val is None:
+            return pd.Series(False, index=df.index)
+        return s_fold.str.contains(re.escape(val_folded), na=False)
+
+    # In-Liste
+    if op in ("in",):
+        vals = [(_fold_text(v) if isinstance(v, str) else v) for v in (val or [])]
+        return s_fold.isin(vals)
+
+    # Regex
+    if op in ("regex", "matches"):
+        try:
+            return s_fold.str.contains(val, flags=re.IGNORECASE, regex=True, na=False)
+        except Exception:
+            return pd.Series(False, index=df.index)
+
+    return pd.Series(False, index=df.index)
+
+
+def _build_condition_mask(df: pd.DataFrame, conds: List[Dict[str, Any]]) -> pd.Series:
+    """UND-Verknuepfung ueber mehrere Bedingungen."""
+    if df is None or df.empty or not conds:
+        return pd.Series(True, index=df.index)
+    mask = pd.Series(True, index=df.index)
+    for c in conds:
+        if not isinstance(c, dict):
+            continue
+        cond = _Cond(
+            col=c.get("col", ""),
+            op=c.get("op", "equals"),
+            value=c.get("value", None),
+            case_insensitive=True
+        )
+        m = _apply_single_condition(df, cond)
+        if not isinstance(m, pd.Series) or len(m) != len(df):
+            m = pd.Series(False, index=df.index)
+        mask &= m
+        if not mask.any():
+            return mask
+    return mask
+
+
+def apply_materialization_rules(
+    df: pd.DataFrame,
+    rules: List[Dict[str, Any]],
+    first_match_wins: bool = False
+) -> pd.DataFrame:
+    """
+    Wendet Regeln auf einen DataFrame an.
+    - Unterstuetzt action=drop / drop=true und then.set{...}
+    - first_match_wins: Zeilen werden nach erstem Treffer fuer weitere Regeln gesperrt
+    """
+    if df is None or df.empty or not rules:
+        return df
+
+    out = df.copy()
+    active_mask = pd.Series(True, index=out.index)
+
+    for rule in rules:
+        conds = rule.get("when", []) or []
+        then_raw = rule.get("then", {}) or {}
+        set_map: Dict[str, Any] = (then_raw.get("set") or {})
+
+        # Drop-Action
+        drop_action = False
+        act = then_raw.get("action")
+        if isinstance(act, str) and act.strip().lower() == "drop":
+            drop_action = True
+        if bool(then_raw.get("drop", False)):
+            drop_action = True
+
+        if not conds and not drop_action and not set_map:
+            continue
+
+        # Maske bilden
+        try:
+            mask = _build_condition_mask(out, conds) if conds else pd.Series(True, index=out.index)
+            if first_match_wins:
+                mask = mask & active_mask
+        except Exception:
+            continue
+
+        idx = out.index[mask]
+        if len(idx) == 0:
+            continue
+
+        # Drop zuerst
+        if drop_action:
+            out = out.drop(index=idx)
+            if first_match_wins:
+                active_mask = active_mask.reindex(out.index).fillna(False)
+            continue
+
+        # Set-Operationen
+        if set_map:
+            cols_present = [k for k in set_map.keys() if k in out.columns]
+            for k in cols_present:
+                v = set_map[k]
+                if v == "__KEEP__":
+                    continue
+                out.loc[idx, k] = v
+
+        if first_match_wins:
+            active_mask.loc[idx] = False
+
+    return out
+
+
+# ========= Debug-Helfer =========
+def _evaluate_rules_debug(df: pd.DataFrame, rules: List[Dict[str, Any]], sample_rows: int = 10):
+    """
+    Liefert:
+      - summary_df: je Regel Anzahl Treffer, Drop/Set-Typ, betroffene Spalten, Fehler
+      - samples: dict von {sheetname: DataFrame} mit Beispielzeilen je Regel
+    """
+    rows = []
+    samples = {}
+    for i, rule in enumerate(rules):
+        then_raw = rule.get("then", {}) or {}
+        set_map = then_raw.get("set") or {}
+        drop_action = (str(then_raw.get("action", "")).strip().lower() == "drop") or bool(then_raw.get("drop", False))
+        action = "drop" if drop_action else ("set" if set_map else "noop")
+        set_cols = ",".join(k for k in set_map.keys()) if set_map else ""
+        err = None
+        try:
+            mask = _build_condition_mask(df, rule.get("when", []) or [])
+        except Exception as e:
+            mask = pd.Series(False, index=df.index)
+            err = f"{type(e).__name__}: {e}"
+        count = int(mask.sum())
+        rows.append({"rule_idx": i, "action": action, "set_cols": set_cols, "match_count": count, "error": err})
+        if count > 0:
+            samples[f"rule_{i:02d}_matches"] = df.loc[mask].head(sample_rows).copy()
+    return pd.DataFrame(rows, columns=["rule_idx","action","set_cols","match_count","error"]), samples
+
+
+def _export_rules_debug_xlsx(df_before: pd.DataFrame,
+                             df_after: pd.DataFrame,
+                             summary_df: pd.DataFrame,
+                             samples: Dict[str, pd.DataFrame]) -> bytes:
+    bio = io.BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        df_before.to_excel(w, index=False, sheet_name="before_rules")
+        summary_df.to_excel(w, index=False, sheet_name="rules_summary")
+        for name, sdf in samples.items():
+            w_sheet = name[:31] if len(name) > 31 else name
+            sdf.to_excel(w, index=False, sheet_name=w_sheet)
+        df_after.to_excel(w, index=False, sheet_name="after_rules")
+    bio.seek(0)
+    return bio.read()
+
 
 # ========= Kernverarbeitung (vektorisiert) =========
 def _process_df(
@@ -306,7 +347,7 @@ def _process_df(
     - Werte uebernehmen: '... Sub' bevorzugen, sonst Mutter (nur wenn Ziel leer).
     - Hauptspalten vor 'Einzelteile' ohne Pendant '... Sub' (ausser GUID) an Nicht-Muetter vererben (wenn Ziel leer).
     - Subs promoten; wenn mind. 1 Sub bleibt -> Mutter droppen.
-    - 'GUID Sub' bleibt erhalten; keine Deduplizierung.
+    - GUID-Logik bereinigt: nur 'GUID' (eigene ID; bei Subs aus 'GUID Sub') und 'GUID Gruppe' (immer Mutter-GUID).
     - Standardisieren & Werte bereinigen.
     """
     drop_set = {str(v).strip().lower() for v in (drop_sub_values or []) if str(v).strip()}
@@ -339,6 +380,7 @@ def _process_df(
     # Mutter-GUID je Gruppe
     if "GUID" in cols:
         mother_guid_map = df.loc[is_mother, ["GUID"]].assign(grp=grp_id[is_mother]).set_index("grp")["GUID"]
+        # Mutter: GUID Gruppe = eigene GUID
         df.loc[is_mother, "GUID Gruppe"] = df.loc[is_mother, "GUID"]
     else:
         mother_guid_map = pd.Series(dtype=object)
@@ -419,22 +461,45 @@ def _process_df(
     drop_mother_mask = is_mother & grp_id.isin(grps_with_kept_sub)
 
     promoted = df.loc[keep_sub_mask].copy()
-    if "GUID Sub" in cols:
+
+    # === GUID-Logik ab hier konsolidieren ===
+    # 1) Bei Subs: GUID aus 'GUID Sub' uebernehmen (falls vorhanden)
+    if "GUID Sub" in promoted.columns:
         guid_sub_ok = promoted["GUID Sub"].notna() & promoted["GUID Sub"].astype(str).str.strip().ne("")
         promoted["GUID"] = promoted["GUID"].where(~guid_sub_ok, promoted["GUID Sub"])
+
+    # 2) Flags setzen
     promoted["Mehrschichtiges Element"] = False
     promoted["Promoted"] = True
-    if not mother_guid_map.empty:
-        promoted["GUID Gruppe"] = grp_id[keep_sub_mask].map(mother_guid_map).values
 
+    # 3) Mutter-GUID an Subs als 'GUID Gruppe' vererben
+    if "GUID" in cols:
+        mother_guid_map = df.loc[is_mother, ["GUID"]].assign(grp=grp_id[is_mother]).set_index("grp")["GUID"]
+        promoted["GUID Gruppe"] = grp_id[keep_sub_mask].map(mother_guid_map).values
+    else:
+        mother_guid_map = pd.Series(dtype=object)
+
+    # 4) Muetter/Subs droppen und Promoted anhaengen
     to_drop_idx = df.index[drop_mother_mask | drop_sub_mask]
     if len(to_drop_idx) > 0:
         df = df.drop(index=to_drop_idx)
     if not promoted.empty:
         df = pd.concat([df, promoted], ignore_index=True)
 
-    # ---------- (4) Sub-Spalten entfernen, aber 'GUID Sub' behalten ----------
-    subs_to_drop = [c for c in df.columns if c.endswith(" Sub") and c != "GUID Sub"]
+    # 5) GUID Gruppe fuer uebrige Subs (falls noch nicht gesetzt) vererben
+    if not mother_guid_map.empty:
+        # Alle Zeilen mit Gruppen-ID, die keine Mutter sind, erhalten Mutter-GUID
+        mask_need_group_guid = (~is_mother.reindex(df.index, fill_value=False)) & grp_id.reindex(df.index).notna()
+        df.loc[mask_need_group_guid, "GUID Gruppe"] = grp_id.reindex(df.index)[mask_need_group_guid].map(mother_guid_map)
+
+    # 6) GUID-Konsolidierung: Nur 'GUID' und 'GUID Gruppe' behalten
+    if "GUID Sub" in df.columns:
+        has_guid_sub = df["GUID Sub"].notna() & df["GUID Sub"].astype(str).str.strip().ne("")
+        df["GUID"] = df["GUID"].where(~has_guid_sub, df["GUID Sub"])
+        df.drop(columns=["GUID Sub"], inplace=True, errors="ignore")
+
+    # ---------- (4) Sub-Spalten entfernen ----------
+    subs_to_drop = [c for c in df.columns if c.endswith(" Sub") and c not in ("GUID Sub",)]
     df.drop(columns=subs_to_drop, inplace=True, errors="ignore")
 
     # ---------- (5) Restbereinigung ----------
@@ -455,30 +520,26 @@ def _process_df(
     df = rename_columns_to_standard(df)
     df = clean_columns_values(df, delete_enabled=True, custom_chars="")
 
+    # Sicherheit: Nur 'GUID' + 'GUID Gruppe' als GUID-Spalten behalten
+    guid_like = [c for c in df.columns if c.lower().startswith("guid")]
+    extra = [c for c in guid_like if c not in ("GUID", "GUID Gruppe")]
+    if extra:
+        df.drop(columns=extra, inplace=True, errors="ignore")
+
     return df
 
 
-# ========= Streamlit App =========
-def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
-    st.set_page_config(page_title="Vererbung & Mengenuebernahme", layout="wide")
+# ========= Streamlit App (3 Schritte) =========
+def app():
+    st.set_page_config(page_title="Vererbung & Regeln", layout="wide")
     st.header("Vererbung & Mengenuebernahme")
 
     # Session-State
-    if "df_raw" not in st.session_state:
-        st.session_state["df_raw"] = None
-    if "df_step1" not in st.session_state:
-        st.session_state["df_step1"] = None
-    if "df_final" not in st.session_state:
-        st.session_state["df_final"] = None
+    for key in ("df_raw", "df_step1", "df_step2", "df_final"):
+        if key not in st.session_state:
+            st.session_state[key] = None
 
-    st.markdown("""
-**Ablauf**
-1) **Einlesen & Bereinigung** (Vererbung/Promotion, keine Regeln, kein Sub-Drop).  
-2) **Subs droppen (eBKP-H exakt)** + **Material-Filter** → danach **Regeln aus rules.json** anwenden.  
-Vorschauen: **Raw**, **Schritt 1**, **Finalisiert**.
-    """)
-
-    # --- Datei laden ---
+    # Datei laden
     uploaded_file = st.file_uploader("Excel-Datei laden", type=["xlsx", "xls"], key="upl_file")
     if not uploaded_file:
         st.stop()
@@ -490,26 +551,48 @@ Vorschauen: **Raw**, **Schritt 1**, **Finalisiert**.
         st.error(f"Fehler beim Einlesen: {e}")
         st.stop()
 
-    # ===== Schritt 1: Einlesen & Bereinigung =====
+    st.markdown("""
+**Ablauf**
+1) **Einlesen & Bereinigung** (Vererbung/Promotion, GUID-Konsolidierung, Standardisierung).  
+2) **Subs droppen (eBKP-H exakt)** + **Material-Filter** *(ohne Regeln)*.  
+3) **Regeln (rules.json) anwenden** + Debug-Feedback + Export.
+    """)
+
+    # ===== Schritt 1 =====
     st.subheader("1) Einlesen & Bereinigung")
-    with st.form(key="form_step1_process"):
+    with st.form(key="form_step1"):
         btn_step1 = st.form_submit_button("Schritt 1 starten (Bereinigung)")
     if btn_step1:
         with st.spinner("Schritt 1 laeuft ..."):
             df_step1 = _process_df(df_raw.copy(), drop_sub_values=[])   # kein Sub-Drop hier
             df_step1 = convert_quantity_columns(df_step1)
         st.session_state["df_step1"] = df_step1.copy()
+        st.session_state["df_step2"] = None
         st.session_state["df_final"] = None
+        st.success("Schritt 1 abgeschlossen.")
 
     if st.session_state["df_step1"] is None:
-        st.info("Bitte zuerst Schritt 1 starten (Bereinigung).")
+        st.info("Bitte Schritt 1 ausfuehren.")
         st.stop()
 
     df_step1 = st.session_state["df_step1"]
+    st.markdown("**Schritt 1 – Bereinigt (Top 15)**")
+    st.dataframe(df_step1.head(15), width="stretch"=True)
+    out_step1 = io.BytesIO()
+    with pd.ExcelWriter(out_step1, engine="openpyxl") as writer:
+        df_step1.to_excel(writer, index=False, sheet_name="Bereinigt_Step1")
+    out_step1.seek(0)
+    st.download_button(
+        "Download: Schritt 1",
+        data=out_step1,
+        file_name="export_bereinigt_step1.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="dl_step1"
+    )
 
-    # ===== Schritt 2: Sub-Drop + Material-Filter + REGELN (am Ende) =====
+    # ===== Schritt 2 =====
     st.markdown("---")
-    st.subheader("2) Subs droppen (eBKP-H) + Material-Filter + REGELN")
+    st.subheader("2) Subs droppen (eBKP-H) + Material-Filter (ohne Regeln)")
 
     # eBKP-H Optionen (aus RAW)
     ebkp_options = sorted(
@@ -544,74 +627,96 @@ Vorschauen: **Raw**, **Schritt 1**, **Finalisiert**.
             default=[],
             help="Zeilen mit diesen effektiven Material-Werten werden entfernt."
         )
-        first_match_wins = st.checkbox("Materialisierungs-Regeln: erste Regel gewinnt (Stop nach Match)", value=True)
-        btn_step2 = st.form_submit_button("Schritt 2 starten")
-
+        btn_step2 = st.form_submit_button("Schritt 2 starten (ohne Regeln)")
     if btn_step2:
         with st.spinner("Schritt 2 laeuft ..."):
-            # 2a) Neu aus RAW prozessieren MIT Sub-Drop (deterministisch)
             df_after_subdrop = _process_df(df_raw.copy(), drop_sub_values=sel_drop_values)
             df_after_subdrop = convert_quantity_columns(df_after_subdrop)
 
-            # 2b) Material-Filter VOR Regeln
             selected_materials = [materials_inv[lbl] for lbl in sel_material_labels]
             if selected_materials:
                 mat_eff = df_after_subdrop.get("Material", pd.Series("", index=df_after_subdrop.index)).astype(str).str.strip()
-                df_after_filter = df_after_subdrop.loc[~mat_eff.isin(set(selected_materials))].reset_index(drop=True)
+                df_step2 = df_after_subdrop.loc[~mat_eff.isin(set(selected_materials))].reset_index(drop=True)
             else:
-                df_after_filter = df_after_subdrop
+                df_step2 = df_after_subdrop
 
-            # 2c) REGELN GANZ AM ENDE (aus rules.json im Repo)
-            rules_all: List[dict] = load_rules_from_repo("rules.json")
-            before = len(df_after_filter)
-            df_final = apply_materialization_rules(
-                df_after_filter.copy(),
-                rules_all,
-                first_match_wins=bool(first_match_wins)
-            ) if rules_all else df_after_filter.copy()
-            after = len(df_final)
-            if "st" in globals():
-                st.caption(f"Regeln angewendet: Differenz {before - after:+d} (vorher {before}, nachher {after}).")
+        st.session_state["df_step2"] = df_step2.copy()
+        st.session_state["df_final"] = None
+        st.success("Schritt 2 abgeschlossen (ohne Regeln).")
 
-        
-        st.session_state["df_final"] = df_final.copy()
-        st.success("Schritt 2 abgeschlossen.")
+    if st.session_state["df_step2"] is None:
+        st.info("Bitte Schritt 2 ausfuehren.")
+        st.stop()
 
-    # ===== Vorschauen & Downloads =====
-    st.markdown("---")
-    st.subheader("3) Vorschauen & Downloads")
-
-    st.markdown("**Raw (15 Zeilen)**")
-    st.dataframe(st.session_state["df_raw"].head(15), use_container_width=True)
-
-    st.markdown("**Schritt 1 – Bereinigt (15 Zeilen)**")
-    st.dataframe(df_step1.head(15), use_container_width=True)
-    out_step1 = io.BytesIO()
-    with pd.ExcelWriter(out_step1, engine="openpyxl") as writer:
-        df_step1.to_excel(writer, index=False, sheet_name="Bereinigt_Step1")
-    out_step1.seek(0)
+    df_step2 = st.session_state["df_step2"]
+    st.markdown("**Schritt 2 – nach Sub-Drop & Material-Filter (Top 15)**")
+    st.dataframe(df_step2.head(15), width="stretch"=True)
+    out_step2 = io.BytesIO()
+    with pd.ExcelWriter(out_step2, engine="openpyxl") as writer:
+        df_step2.to_excel(writer, index=False, sheet_name="Step2_no_rules")
+    out_step2.seek(0)
     st.download_button(
-        "Download: Schritt 1 (ohne Sub-Drop & ohne Regeln)",
-        data=out_step1,
-        file_name="export_bereinigt_step1.xlsx",
+        "Download: Schritt 2 (ohne Regeln)",
+        data=out_step2,
+        file_name="export_step2_no_rules.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="dl_bereinigt_step1"
+        key="dl_step2"
     )
 
-    if st.session_state.get("df_final") is not None:
+    # ===== Schritt 3: Regeln =====
+    st.markdown("---")
+    st.subheader("3) Regeln anwenden (rules.json)")
+
+    with st.form(key="form_step3"):
+        first_match_wins = st.checkbox("Materialisierungs-Regeln: erste Regel gewinnt (Stop nach Match)", value=False)
+        debug_rules = st.checkbox("Regel-Debug aktivieren (Zusammenfassung & Export)", value=True)
+        btn_step3 = st.form_submit_button("Schritt 3 starten (Regeln anwenden)")
+
+    if btn_step3:
+        df_input = df_step2.copy()
+        rules_all: List[dict] = load_rules_from_repo("rules.json")
+
+        total_rules = len(rules_all)
+        if debug_rules:
+            dbg_summary, dbg_samples = _evaluate_rules_debug(df_input, rules_all, sample_rows=10)
+            st.caption(f"Regel-Debug: {total_rules} Regeln geladen. Gesamt-Treffer: {int(dbg_summary['match_count'].sum())}.")
+            st.dataframe(dbg_summary, width="stretch"=True)
+
+        before = len(df_input)
+        df_final = apply_materialization_rules(
+            df_input.copy(),
+            rules_all,
+            first_match_wins=bool(first_match_wins)
+        ) if rules_all else df_input.copy()
+        after = len(df_final)
+
+        # Debug-Export
+        if debug_rules:
+            xbytes = _export_rules_debug_xlsx(df_input, df_final, dbg_summary, dbg_samples)
+            st.download_button(
+                "Download Regel-Debug (Excel)",
+                data=xbytes,
+                file_name="regel_debug.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_rules_debug_step3"
+            )
+
+        st.session_state["df_final"] = df_final.copy()
+        st.success(f"Schritt 3 abgeschlossen. Regeln angewendet: Differenz {before - after:+d} (vorher {before}, nachher {after}).")
+
+    # Final-Ansicht & Download
+    if st.session_state["df_final"] is not None:
         df_final = st.session_state["df_final"]
-        st.markdown("**Finalisiert (15 Zeilen)**")
-        st.dataframe(df_final.head(15), use_container_width=True)
+        st.markdown("**Finalisiert (Top 15)**")
+        st.dataframe(df_final.head(15), width="stretch"=True)
         out_final = io.BytesIO()
         with pd.ExcelWriter(out_final, engine="openpyxl") as writer:
-            df_final.to_excel(writer, index=False, sheet_name="Final_Step2")
+            df_final.to_excel(writer, index=False, sheet_name="Final_Step3")
         out_final.seek(0)
         st.download_button(
-            "Download: Finalisiert (nach Sub-Drop, Material-Filter, REGELN)",
+            "Download: Final (nach Regeln)",
             data=out_final,
-            file_name="export_final_step2.xlsx",
+            file_name="export_final_step3.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_final_step2"
+            key="dl_final_step3"
         )
-    else:
-        st.info("Schritt 2 noch nicht ausgefuehrt.")
