@@ -666,44 +666,100 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     # ===== Schritt 3: Regeln =====
     st.markdown("---")
     st.subheader("3) Regeln anwenden (rules.json)")
-
+    
     with st.form(key="form_step3"):
         first_match_wins = st.checkbox("Materialisierungs-Regeln: erste Regel gewinnt (Stop nach Match)", value=False)
         debug_rules = st.checkbox("Regel-Debug aktivieren (Zusammenfassung & Export)", value=True)
         btn_step3 = st.form_submit_button("Schritt 3 starten (Regeln anwenden)")
-
+    
     if btn_step3:
         df_input = df_step2.copy()
         rules_all: List[dict] = load_rules_from_repo("rules.json")
-
+    
         total_rules = len(rules_all)
         if debug_rules:
             dbg_summary, dbg_samples = _evaluate_rules_debug(df_input, rules_all, sample_rows=10)
             st.caption(f"Regel-Debug: {total_rules} Regeln geladen. Gesamt-Treffer: {int(dbg_summary['match_count'].sum())}.")
             st.dataframe(dbg_summary, width="stretch")
-
+    
         before = len(df_input)
         df_final = apply_materialization_rules(
             df_input.copy(),
             rules_all,
             first_match_wins=bool(first_match_wins)
         ) if rules_all else df_input.copy()
-        # --- Exakte Element-Duplikate entfernen (am Ende aller Verarbeitungen) ---
-        # Ausgeschlossen: Meta-Spalten
-        exclude_cols = {"Mehrschichtiges Element", "Promoted", "GUID Gruppe"}
-        subset_cols = [c for c in df_final.columns if c not in exclude_cols]
+    
+        # --- 3.c Finale Spalten-Pruefung & robuste Deduplication (NACH allen Regeln) ---
+    
+        # 1) Zielspalten (in dieser Reihenfolge anzeigen, soweit vorhanden)
+        target_cols = [
+            "Teilprojekt","Geschoss","eBKP-H","Material","Unter Terrain","Ergaenzungen","Typ","Umbaustatus",
+            "Flaeche (m2)","Dicke (m)","Volumen (m3)","Anzahl","Laenge (m)","Hoehe (m)","GUID"
+        ]
         
-        before_dedup = len(df_final)
-        df_final = df_final.drop_duplicates(subset=subset_cols, keep="first").reset_index(drop=True)
-        removed = before_dedup - len(df_final)
+        # 2) Zentrale Pflichtfelder fuer Qualitaetscheck
+        central_keys = ["Teilprojekt","Geschoss","eBKP-H","Material","GUID"]
         
-        if removed > 0:
-            st.info(f"Exakte Element-Duplikate entfernt: {removed} Zeilen (ohne Meta-Spalten {sorted(list(exclude_cols))}).")
+        missing_central = [c for c in central_keys if c not in df_final.columns]
+        if missing_central:
+            st.error(f"Zentrale Spalten fehlen: {missing_central}. Bitte Mapping/Standardisierung pruefen.")
         else:
-            st.caption("Keine exakten Element-Duplikate gefunden.")
-
-        after = len(df_final)
-
+            empties = {}
+            for c in central_keys:
+                s = df_final[c]
+                if pd.api.types.is_numeric_dtype(s):
+                    cnt = int(s.isna().sum())
+                else:
+                    cnt = int(s.isna().sum() + s.astype(str).str.strip().eq("").sum())
+                if cnt > 0:
+                    empties[c] = cnt
+            if empties:
+                st.warning(f"Leere Werte in zentralen Spalten: {empties}")
+        
+        # 3) Robuste Kanonisierung fuer exaktes Element-Dedup
+        exclude_meta = {"Mehrschichtiges Element","Promoted","GUID Gruppe"}
+        subset_cols = [c for c in df_final.columns if c not in exclude_meta]
+        
+        df_norm = df_final[subset_cols].copy()
+        
+        # Strings normieren
+        obj_cols = [c for c in subset_cols if df_norm[c].dtype == "object"]
+        for c in obj_cols:
+            s = df_norm[c].astype(str).fillna("")
+            s = s.str.replace(r"\s+", " ", regex=True).str.strip()
+            df_norm[c] = s
+        
+        # Numerik runden
+        num_cols = [c for c in subset_cols if pd.api.types.is_numeric_dtype(df_norm[c])]
+        for c in num_cols:
+            df_norm[c] = pd.to_numeric(df_norm[c], errors="coerce").round(6)
+        
+        # Dedup
+        keep_mask = ~df_norm.duplicated(keep="first")
+        removed_exact = int((~keep_mask).sum())
+        df_final = df_final.loc[keep_mask].reset_index(drop=True)
+        if removed_exact > 0:
+            st.info(f"Exakte Element-Duplikate entfernt: {removed_exact} Zeilen.")
+        
+        # 4) Reihenfolge der Spalten fuer Ausgabe
+        ordered_cols = [c for c in target_cols if c in df_final.columns]
+        the_rest = [c for c in df_final.columns if c not in ordered_cols]
+        df_final = df_final[ordered_cols + the_rest]
+    
+        # 5) GUID Gruppe optional entfernen
+        if "GUID Gruppe" in df_final.columns:
+            df_final.drop(columns=["GUID Gruppe"], inplace=True, errors="ignore")
+    
+        # 6) Doppelte GUIDs markieren
+        if "GUID" in df_final.columns:
+            dup_mask = df_final["GUID"].duplicated(keep=False)
+            if dup_mask.any():
+                st.warning(f"Doppelte GUIDs gefunden: {dup_mask.sum()} Zeilen")
+                st.dataframe(df_final.style.apply(
+                    lambda s: ["background-color: yellow" if dup_mask.iloc[i] else "" for i in range(len(s))],
+                    axis=0
+                ), width="stretch")
+    
         # Debug-Export
         if debug_rules:
             xbytes = _export_rules_debug_xlsx(df_input, df_final, dbg_summary, dbg_samples)
@@ -714,9 +770,11 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_rules_debug_step3"
             )
-
+    
+        after = len(df_final)
         st.session_state["df_final"] = df_final.copy()
         st.success(f"Schritt 3 abgeschlossen. Regeln angewendet: Differenz {before - after:+d} (vorher {before}, nachher {after}).")
+
 
     # Final-Ansicht & Download
     if st.session_state["df_final"] is not None:
