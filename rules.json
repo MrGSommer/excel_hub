@@ -59,7 +59,21 @@
     { "col": "eBKP-H",  "op": "contains", "value": "C0" }
   ],
   "then": { "action": "drop" }
-},
+  },
+  {
+  "when": [
+    { "col": "Material",  "op": "contains", "value": "Leichtbau" },
+    { "col": "eBKP-H",  "op": "contains", "value": "C02.01" }
+  ],
+  "then": { "action": "drop" }
+  },
+  {
+  "when": [
+    { "col": "Material",  "op": "contains", "value": "Platten" },
+    { "col": "eBKP-H",  "op": "contains", "value": "C02.01" }
+  ],
+    "then": { "set": {"eBKP-H": "G03.02 Wandbekleidung"} }
+  },
   {
     "when": [
       {"col": "eBKP-H", "op": "contains", "value": "C02.02"},
