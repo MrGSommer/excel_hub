@@ -530,7 +530,7 @@ def _process_df(
 
 
 # ========= Streamlit App (3 Schritte) =========
-def app():
+def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
     st.set_page_config(page_title="Vererbung & Regeln", layout="wide")
     st.header("Vererbung & Mengenuebernahme")
 
