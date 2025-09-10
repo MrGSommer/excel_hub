@@ -688,6 +688,20 @@ def app(supplement_name: str, delete_enabled: bool, custom_chars: str):
             rules_all,
             first_match_wins=bool(first_match_wins)
         ) if rules_all else df_input.copy()
+        # --- Exakte Element-Duplikate entfernen (am Ende aller Verarbeitungen) ---
+        # Ausgeschlossen: Meta-Spalten
+        exclude_cols = {"Mehrschichtiges Element", "Promoted", "GUID Gruppe"}
+        subset_cols = [c for c in df_final.columns if c not in exclude_cols]
+        
+        before_dedup = len(df_final)
+        df_final = df_final.drop_duplicates(subset=subset_cols, keep="first").reset_index(drop=True)
+        removed = before_dedup - len(df_final)
+        
+        if removed > 0:
+            st.info(f"Exakte Element-Duplikate entfernt: {removed} Zeilen (ohne Meta-Spalten {sorted(list(exclude_cols))}).")
+        else:
+            st.caption("Keine exakten Element-Duplikate gefunden.")
+
         after = len(df_final)
 
         # Debug-Export
